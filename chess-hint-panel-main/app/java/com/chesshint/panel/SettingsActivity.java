@@ -1,0 +1,360 @@
+package com.chesshint.panel;
+
+import android.app.Activity;
+import android.content.res.ColorStateList;
+import android.os.Bundle;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.widget.LinearLayout;
+import android.widget.SeekBar;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+/**
+ * Settings. Everything the panel draws or does can be changed here and every change is
+ * applied to the running panel immediately (the live preview at the top shows exactly
+ * what will appear on the board).
+ */
+public class SettingsActivity extends Activity {
+
+    private Prefs prefs;
+    private MarkerPreviewView preview;
+    private LinearLayout styleRow, sizeRow, paletteRow, timeRow, sideRow, bubbleRow;
+    private TextView calibrationLabel, strengthValue, strengthMaxButton;
+    private SeekBar strengthSeekBar;
+
+    @Override
+    protected void onCreate(Bundle b) {
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        super.onCreate(b);
+        prefs = new Prefs(this);
+        setContentView(build());
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshAll();
+    }
+
+    private View build() {
+        ScrollView sv = new ScrollView(this);
+        sv.setBackgroundColor(Ui.BG);
+
+        LinearLayout root = Ui.column(this);
+        int pad = Ui.dp(this, 14);
+        root.setPadding(pad, Ui.dp(this, 6), pad, Ui.dp(this, 24));
+        sv.addView(root);
+
+        // -------------------------------------------------- slim top bar
+        LinearLayout bar = Ui.row(this);
+        TextView back = Ui.text(this, "\u2039  Back", 14f, Ui.TEXT, true);
+        back.setBackground(Ui.round(Ui.CHIP, Ui.CARD_BORDER, this, 10));
+        back.setPadding(Ui.dp(this, 12), Ui.dp(this, 6), Ui.dp(this, 12), Ui.dp(this, 6));
+        back.setOnClickListener(v -> finish());
+        bar.addView(back);
+
+        TextView title = Ui.text(this, "Settings", 16f, Ui.TEXT, true);
+        title.setPadding(Ui.dp(this, 12), 0, 0, 0);
+        bar.addView(title);
+        root.addView(bar, Ui.lpTop(this, 0, 2));
+
+        // -------------------------------------------------- MARKER section
+        LinearLayout marker = Ui.card(this);
+        marker.addView(Ui.sectionTitle(this, "HOW THE MOVE IS SHOWN"));
+
+        preview = new MarkerPreviewView(this);
+        marker.addView(preview);
+
+        TextView live = Ui.text(this, "Live preview of your board", 11f, Ui.TEXT_DIM, false);
+        live.setGravity(Gravity.CENTER);
+        marker.addView(live, Ui.lpTop(this, 0, 2));
+
+        marker.addView(Ui.text(this, "Style", 12.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 14));
+        styleRow = Ui.chipRow(this);
+        marker.addView(styleRow, Ui.lpTop(this, 0, 6));
+
+        marker.addView(Ui.text(this, "Colours", 12.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 12));
+        paletteRow = Ui.chipRow(this);
+        marker.addView(paletteRow, Ui.lpTop(this, 0, 6));
+
+        marker.addView(Ui.text(this, "Size", 12.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 12));
+        sizeRow = Ui.chipRow(this);
+        marker.addView(sizeRow, Ui.lpTop(this, 0, 6));
+
+        marker.addView(Ui.divider(this));
+        marker.addView(Ui.switchRow(this, "Move coordinates on the board", "shows from and to squares, e.g. g1 → f3",
+                prefs.showLabel(), (v, checked) -> {
+                    prefs.setShowLabel(checked);
+                    push();
+                }));
+        marker.addView(Ui.switchRow(this, "Engine line", "depth and score printed under the board",
+                prefs.showInfo(), (v, checked) -> {
+                    prefs.setShowInfo(checked);
+                    push();
+                }));
+        marker.addView(Ui.switchRow(this, "Enemy / You labels", "thin labels above and below the board",
+                prefs.showSideLabels(), (v, checked) -> {
+                    prefs.setShowSideLabels(checked);
+                    push();
+                }));
+        marker.addView(Ui.switchRow(this, "Board frame + grid", "outline of the detected board",
+                prefs.showFrame(), (v, checked) -> {
+                    prefs.setShowFrame(checked);
+                    push();
+                }));
+        marker.addView(Ui.switchRow(this, "Status messages", "small pill near the bottom of the screen",
+                prefs.showChip(), (v, checked) -> {
+                    prefs.setShowChip(checked);
+                    push();
+                }));
+        root.addView(marker, Ui.lpTop(this, 0, 12));
+
+        // -------------------------------------------------- PLAY section
+        LinearLayout play = Ui.card(this);
+        play.addView(Ui.sectionTitle(this, "PLAY"));
+        play.addView(Ui.text(this, "My side (bottom of the board)", 12.5f, Ui.TEXT_DIM, false));
+        sideRow = Ui.chipRow(this);
+        play.addView(sideRow, Ui.lpTop(this, 0, 6));
+
+        play.addView(Ui.text(this, "Engine strength", 12.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 12));
+
+        LinearLayout strengthPanel = Ui.column(this);
+        strengthPanel.setBackground(Ui.round(Ui.CHIP, Ui.CARD_BORDER, this, 14));
+        int strengthPad = Ui.dp(this, 10);
+        strengthPanel.setPadding(strengthPad, strengthPad, strengthPad, strengthPad);
+
+        LinearLayout strengthTop = Ui.row(this);
+        strengthValue = Ui.text(this, "MAX STRENGTH", 15.5f, Ui.ACCENT, true);
+        strengthTop.addView(strengthValue, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        strengthMaxButton = Ui.ghostButton(this, "MAX ACTIVE", v -> {
+            prefs.setElo(-1);
+            push();
+            refreshAll();
+        });
+        strengthMaxButton.setTextSize(11f);
+        strengthMaxButton.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 8));
+        strengthTop.addView(strengthMaxButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        strengthPanel.addView(strengthTop);
+
+        strengthSeekBar = new SeekBar(this);
+        strengthSeekBar.setMax(3190 - 1320);
+        strengthSeekBar.setProgress((prefs.elo() <= 0 ? 3190 : Math.max(1320, Math.min(3190, prefs.elo()))) - 1320);
+        strengthSeekBar.setProgressTintList(ColorStateList.valueOf(Ui.ACCENT));
+        strengthSeekBar.setThumbTintList(ColorStateList.valueOf(Ui.ACCENT));
+        strengthSeekBar.setProgressBackgroundTintList(ColorStateList.valueOf(Ui.CARD_BORDER));
+        strengthSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            private boolean movedByUser;
+
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                movedByUser = true;
+                strengthValue.setText((1320 + progress) + " ELO");
+                strengthValue.setTextColor(Ui.TEXT);
+                strengthMaxButton.setText("USE MAX");
+                strengthMaxButton.setTextColor(Ui.TEXT);
+                strengthMaxButton.setBackground(Ui.round(Ui.CHIP, Ui.CARD_BORDER, SettingsActivity.this, 11));
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                movedByUser = false;
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                if (!movedByUser) return;
+                prefs.setElo(1320 + seekBar.getProgress());
+                push();
+                refreshAll();
+                movedByUser = false;
+            }
+        });
+        strengthPanel.addView(strengthSeekBar, Ui.lpTop(this, Ui.dp(this, 38), 2));
+
+        LinearLayout strengthScale = Ui.row(this);
+        TextView strengthMin = Ui.text(this, "1320", 10.5f, Ui.TEXT_DIM, false);
+        TextView strengthMax = Ui.text(this, "3190 ELO", 10.5f, Ui.TEXT_DIM, false);
+        strengthMax.setGravity(Gravity.END);
+        strengthScale.addView(strengthMin, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        strengthScale.addView(strengthMax, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        strengthPanel.addView(strengthScale, Ui.lpTop(this, 0, 0));
+        strengthPanel.addView(Ui.text(this, "Choose a target rating, or use MAX for unrestricted strength.",
+                10.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 5));
+        play.addView(strengthPanel, Ui.lpTop(this, 0, 6));
+
+        play.addView(Ui.text(this, "Thinking time per hint", 12.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 12));
+        timeRow = Ui.chipRow(this);
+        play.addView(timeRow, Ui.lpTop(this, 0, 6));
+
+        play.addView(Ui.divider(this));
+        play.addView(Ui.switchRow(this, "Auto hints", "reads the screen and shows your move automatically on your turn",
+                prefs.auto(), (v, checked) -> {
+                    prefs.setAuto(checked);
+                    push();
+                }));
+        play.addView(Ui.switchRow(this, "Vibrate on new hint", null, prefs.vibrations(), (v, checked) -> {
+            prefs.setVibrations(checked);
+            push();
+        }));
+        root.addView(play, Ui.lpTop(this, 0, 12));
+
+        // -------------------------------------------------- BOARD section
+        LinearLayout boardCard = Ui.card(this);
+        boardCard.addView(Ui.sectionTitle(this, "BOARD"));
+        calibrationLabel = Ui.text(this, "", 12.5f, Ui.TEXT_DIM, false);
+        boardCard.addView(calibrationLabel);
+        LinearLayout br = Ui.row(this);
+        br.addView(Ui.ghostButton(this, "Fit frame", v -> call(0)), weightLeft());
+        br.addView(Ui.ghostButton(this, "Auto detect", v -> call(1)), weightRight());
+        boardCard.addView(br, Ui.lpTop(this, 0, 10));
+        LinearLayout br2 = Ui.row(this);
+        br2.addView(Ui.ghostButton(this, "Fix pieces", v -> call(2)), weightLeft());
+        br2.addView(Ui.ghostButton(this, "New game", v -> call(3)), weightRight());
+        boardCard.addView(br2, Ui.lpTop(this, 0, 8));
+
+        boardCard.addView(Ui.text(this, "Bubble size", 12.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 14));
+        bubbleRow = Ui.chipRow(this);
+        boardCard.addView(bubbleRow, Ui.lpTop(this, 0, 6));
+        root.addView(boardCard, Ui.lpTop(this, 0, 12));
+
+        // -------------------------------------------------- ABOUT
+        LinearLayout about = Ui.card(this);
+        about.addView(Ui.sectionTitle(this, "ABOUT"));
+        about.addView(Ui.text(this, "Version 2.2  •  Stockfish 19", 13.5f, Ui.TEXT, true));
+        about.addView(Ui.text(this, "Native Stockfish 19 engine compiled for ARM64 / ARMv7 / x86_64.\n"
+                + "Runs 100% offline — the board is read directly on your device and every suggested move is strictly validated against chess rules.",
+                12f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 6));
+        root.addView(about, Ui.lpTop(this, 0, 12));
+
+        return sv;
+    }
+
+    private LinearLayout.LayoutParams weightLeft() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        p.rightMargin = Ui.dp(this, 5);
+        return p;
+    }
+
+    private LinearLayout.LayoutParams weightRight() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        p.leftMargin = Ui.dp(this, 5);
+        return p;
+    }
+
+    // ---------------------------------------------------------------- actions
+
+    private void call(int what) {
+        switch (what) {
+            case 0: OverlayService.requestCalibration(); toast("Drag the frame over the board"); break;
+            case 1: OverlayService.requestAutoDetect(); toast("Looking for the board…"); break;
+            case 2: OverlayService.requestEditor(); toast("Tap the squares to fix the pieces"); break;
+            case 3: OverlayService.newGame(); toast("Position reset"); break;
+        }
+    }
+
+    private void push() {
+        OverlayService.settingsChanged();
+        if (preview != null) preview.set(prefs.markerStyle(), prefs.palette(), prefs.markerScale(), prefs.showLabel());
+    }
+
+    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
+
+    private void refreshAll() {
+        if (preview != null) preview.set(prefs.markerStyle(), prefs.palette(), prefs.markerScale(), prefs.showLabel());
+
+        // style chips
+        styleRow.removeAllViews();
+        String[] styleNames = {"Arrow + rings", "Arrow only", "Rings only", "Squares"};
+        for (int i = 0; i < 4; i++) {
+            final int s = i;
+            styleRow.addView(Ui.chip(this, styleNames[i], prefs.markerStyle() == i, v -> {
+                prefs.setMarkerStyle(s);
+                push();
+                refreshAll();
+            }));
+        }
+
+        // palette chips
+        paletteRow.removeAllViews();
+        for (int i = 0; i < Markers.PALETTE.length; i++) {
+            final int p = i;
+            TextView t = Ui.chip(this, Markers.PALETTE_NAME[i], prefs.palette() == i, v -> {
+                prefs.setPalette(p);
+                push();
+                refreshAll();
+            });
+            paletteRow.addView(t);
+        }
+
+        // size chips
+        sizeRow.removeAllViews();
+        String[] sizes = {"Small", "Normal", "Large"};
+        for (int i = 0; i < 3; i++) {
+            final int s = i;
+            sizeRow.addView(Ui.chip(this, sizes[i], prefs.markerSize() == i, v -> {
+                prefs.setMarkerSize(s);
+                push();
+                refreshAll();
+            }));
+        }
+
+        // side
+        sideRow.removeAllViews();
+        sideRow.addView(Ui.chip(this, "White at bottom (me)", prefs.whiteBottom(), v -> {
+            prefs.setWhiteBottom(true);
+            push();
+            refreshAll();
+        }));
+        sideRow.addView(Ui.chip(this, "Black at bottom (me)", !prefs.whiteBottom(), v -> {
+            prefs.setWhiteBottom(false);
+            push();
+            refreshAll();
+        }));
+
+        // strength slider and full-strength shortcut
+        boolean maxStrength = prefs.elo() <= 0;
+        int targetElo = maxStrength ? 3190 : Math.max(1320, Math.min(3190, prefs.elo()));
+        strengthSeekBar.setProgress(targetElo - 1320);
+        strengthValue.setText(maxStrength ? "MAX STRENGTH" : targetElo + " ELO");
+        strengthValue.setTextColor(maxStrength ? Ui.ACCENT : Ui.TEXT);
+        strengthMaxButton.setText(maxStrength ? "MAX ACTIVE" : "USE MAX");
+        strengthMaxButton.setBackground(Ui.round(maxStrength ? Ui.CHIP_SEL : Ui.CHIP,
+                maxStrength ? 0 : Ui.CARD_BORDER, this, 11));
+        strengthMaxButton.setTextColor(maxStrength ? 0xFF06210F : Ui.TEXT);
+
+        // time
+        timeRow.removeAllViews();
+        int[] times = {500, 1000, 1500, 3000, 5000};
+        String[] tn = {"0.5s", "1s", "1.5s", "3s", "5s"};
+        for (int i = 0; i < times.length; i++) {
+            final int t = times[i];
+            timeRow.addView(Ui.chip(this, tn[i], prefs.movetime() == t, v -> {
+                prefs.setMovetime(t);
+                push();
+                refreshAll();
+            }));
+        }
+
+        // bubble size chips
+        bubbleRow.removeAllViews();
+        String[] bNames = {"Small", "Normal", "Large"};
+        for (int i = 0; i < 3; i++) {
+            final int size = i;
+            bubbleRow.addView(Ui.chip(this, bNames[i], prefs.bubbleSize() == i, v -> {
+                prefs.setBubbleSize(size);
+                push();
+                refreshAll();
+            }));
+        }
+
+        android.graphics.Rect r = prefs.boardRect();
+        calibrationLabel.setText(r == null ? "Board frame: auto-detects when you open your game."
+                : "Board frame: " + r.left + ", " + r.top + "  (" + r.width() + " × " + r.height() + " px)");
+    }
+}
