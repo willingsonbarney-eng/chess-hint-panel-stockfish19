@@ -5,7 +5,6 @@ A floating chess coach for Android.
 This repaired source targets official Stockfish 19 and improves board-state trust/reconciliation. A compiled v2.3 APK was not produced in the original repair environment because Android SDK/NDK tools were unavailable and the engine source/NNUE download was blocked. The project has since been built through GitHub Actions. Download the generated artifact from the repository's Actions page and test it on your device before relying on it. No root or paid analysis API is required; analysis is intended to run offline after a successful build.
 
 ""Build APK" (https://github.com/willingsonbarney-eng/chess-hint-panel-stockfish19/actions/workflows/build-apk.yml/badge.svg)" (../../actions/workflows/build-apk.yml)
-
 "Android" (https://img.shields.io/badge/Android-8.0%20%E2%80%93%2015-3ddc84)
 "Offline" (https://img.shields.io/badge/internet-not%20required-informational)
 "License" (https://img.shields.io/badge/license-MIT%20(app)%20%2B%20GPLv3%20(engine)-yellow)
@@ -53,11 +52,11 @@ Reports capture issues, offers Retry screen reading and a Share log button| Drag
 2. Select a successful Build APK workflow run.
 3. Under Artifacts, download "ChessHintPanel-apk".
 4. Extract the downloaded ZIP and locate the generated APK.
-5. Transfer the APK to your phone, tap it, and allow installs from that source when Android prompts, then install.
+5. Transfer the APK to your phone, tap it, allow installs from that source when Android prompts, then install.
 6. Open the app:
    * ALLOW "DISPLAY OVER OTHER APPS" → toggle ON
    * START PANEL → Android asks "Start recording or casting?" → YES
-7. A small ♞ HINT ball should appear. Open a compatible chessboard and tap it → SHOW MY MOVE.
+7. A small ♞ HINT ball should appear. Open your chess game and tap it → SHOW MY MOVE.
 
 «Your pieces must be at the bottom of the board — if not, tap ♞ → ME: WHITE/BLACK or set My side in Settings.»
 
@@ -106,20 +105,20 @@ A successful GitHub Actions workflow confirms that the configured build complete
 
 📦 All versions
 
-The following APK files were included in the uploaded project package. These are archived APKs and should not automatically be considered builds of the latest repaired source.
+The following APK files were included in the uploaded project package. They are archived APKs and should not automatically be considered builds of the latest repaired source.
 
 Version| APK| What changed
-2.2| "ChessHintPanel-v2.2.apk" (apk/ChessHintPanel-v2.2.apk)| Archived APK included in the uploaded project package
-2.1| "ChessHintPanel-v2.1.apk" (apk/ChessHintPanel-v2.1.apk)| Archived APK included in the uploaded project package
-1.8| "ChessHintPanel-v1.8.apk" (apk/ChessHintPanel-v1.8.apk)| Historical release
-1.7| "ChessHintPanel-v1.7.apk" (apk/ChessHintPanel-v1.7.apk)| Historical release
-1.6| "ChessHintPanel-v1.6.apk" (apk/ChessHintPanel-v1.6.apk)| Historical release
-1.5| "ChessHintPanel-v1.5.apk" (apk/ChessHintPanel-v1.5.apk)| Historical release
-1.4| "ChessHintPanel-v1.4.apk" (apk/ChessHintPanel-v1.4.apk)| Historical release
-1.3| "ChessHintPanel-v1.3.apk" (apk/ChessHintPanel-v1.3.apk)| Historical release
-1.2| "ChessHintPanel-v1.2.apk" (apk/ChessHintPanel-v1.2.apk)| Historical release
-1.1| "ChessHintPanel-v1.1.apk" (apk/ChessHintPanel-v1.1.apk)| Historical release
-1.0| "ChessHintPanel-v1.0.apk" (apk/ChessHintPanel-v1.0.apk)| First archived release
+2.2| "apk/ChessHintPanel-v2.2.apk" (apk/ChessHintPanel-v2.2.apk)| Archived APK included in the uploaded project package
+2.1| "apk/ChessHintPanel-v2.1.apk" (apk/ChessHintPanel-v2.1.apk)| Archived APK included in the uploaded project package
+1.8| "apk/ChessHintPanel-v1.8.apk" (apk/ChessHintPanel-v1.8.apk)| Historical release
+1.7| "apk/ChessHintPanel-v1.7.apk" (apk/ChessHintPanel-v1.7.apk)| Historical release
+1.6| "apk/ChessHintPanel-v1.6.apk" (apk/ChessHintPanel-v1.6.apk)| Historical release
+1.5| "apk/ChessHintPanel-v1.5.apk" (apk/ChessHintPanel-v1.5.apk)| Historical release
+1.4| "apk/ChessHintPanel-v1.4.apk" (apk/ChessHintPanel-v1.4.apk)| Historical release
+1.3| "apk/ChessHintPanel-v1.3.apk" (apk/ChessHintPanel-v1.3.apk)| Historical release
+1.2| "apk/ChessHintPanel-v1.2.apk" (apk/ChessHintPanel-v1.2.apk)| Historical release
+1.1| "apk/ChessHintPanel-v1.1.apk" (apk/ChessHintPanel-v1.1.apk)| Historical release
+1.0| "apk/ChessHintPanel-v1.0.apk" (apk/ChessHintPanel-v1.0.apk)| First archived release
 
 Latest GitHub Actions build
 
@@ -132,7 +131,7 @@ The latest successful workflow produces an artifact named "ChessHintPanel-apk".
 
 The Actions artifact is separate from the archived APKs listed above. Verify the APK's actual version from its build configuration before assigning it a release number.
 
-Full history: "CHANGELOG.md" (CHANGELOG.md)
+Full history: ""CHANGELOG.md"" (CHANGELOG.md)
 
 ⚖️ About "8000 Elo"
 
