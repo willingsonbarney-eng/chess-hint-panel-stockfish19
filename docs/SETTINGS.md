@@ -22,7 +22,7 @@ marks will look like on your own board.
 | Setting | Values | Notes |
 |---|---|---|
 | **My side** | white at the bottom / black at the bottom | The bottom half is always *you*; the engine is only asked for your move. |
-| **Engine strength** | MAX or adjustable 1320–3190 Elo target | MAX uses unrestricted Stockfish 19 strength. The slider uses Stockfish's calibrated Elo limiter for practice. |
+| **Engine strength** | MAX · 2850 · 2400 · 1800 · 1400 | MAX is full Stockfish (≈3400+). The others use Stockfish's own Elo limiter for fair practice. |
 | **Thinking time per hint** | 0.5 s · 1 s · 1.5 s · 3 s · 5 s | Longer = slightly stronger move, slower answer. 1.5 s is the default. |
 | **Auto hints** | on/off | Captures a frame every second and hints you automatically on your turn; silent while the enemy thinks. |
 | **Vibrate on new hint** | on/off | A short buzz when a new hint appears. |

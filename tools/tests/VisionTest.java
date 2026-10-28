@@ -18,8 +18,10 @@ public class VisionTest {
     }
 
     public static void main(String[] a) throws Exception {
-        File dir = new File("/home/user/build/test/boards");
+        File dir = new File(a.length > 0 ? a[0] : "build/test/boards");
         File[] files = dir.listFiles((d, n) -> n.endsWith(".txt"));
+        if (files == null) throw new IllegalStateException("No generated board tests in " + dir.getAbsolutePath()
+                + ". Run: python3 tools/tests/gen_boards.py " + dir.getPath());
         java.util.Arrays.sort(files);
         for (File meta : files) {
             String name = meta.getName().replace(".txt", "");

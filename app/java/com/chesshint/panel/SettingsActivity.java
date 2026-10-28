@@ -1,14 +1,12 @@
 package com.chesshint.panel;
 
 import android.app.Activity;
-import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -22,9 +20,8 @@ public class SettingsActivity extends Activity {
 
     private Prefs prefs;
     private MarkerPreviewView preview;
-    private LinearLayout styleRow, sizeRow, paletteRow, timeRow, sideRow, bubbleRow;
-    private TextView calibrationLabel, strengthValue, strengthMaxButton;
-    private SeekBar strengthSeekBar;
+    private LinearLayout styleRow, sizeRow, paletteRow, strengthRow, timeRow, sideRow, bubbleRow;
+    private TextView calibrationLabel;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -121,72 +118,8 @@ public class SettingsActivity extends Activity {
         play.addView(sideRow, Ui.lpTop(this, 0, 6));
 
         play.addView(Ui.text(this, "Engine strength", 12.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 12));
-
-        LinearLayout strengthPanel = Ui.column(this);
-        strengthPanel.setBackground(Ui.round(Ui.CHIP, Ui.CARD_BORDER, this, 14));
-        int strengthPad = Ui.dp(this, 10);
-        strengthPanel.setPadding(strengthPad, strengthPad, strengthPad, strengthPad);
-
-        LinearLayout strengthTop = Ui.row(this);
-        strengthValue = Ui.text(this, "MAX STRENGTH", 15.5f, Ui.ACCENT, true);
-        strengthTop.addView(strengthValue, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        strengthMaxButton = Ui.ghostButton(this, "MAX ACTIVE", v -> {
-            prefs.setElo(-1);
-            push();
-            refreshAll();
-        });
-        strengthMaxButton.setTextSize(11f);
-        strengthMaxButton.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 8));
-        strengthTop.addView(strengthMaxButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        strengthPanel.addView(strengthTop);
-
-        strengthSeekBar = new SeekBar(this);
-        strengthSeekBar.setMax(3190 - 1320);
-        strengthSeekBar.setProgress((prefs.elo() <= 0 ? 3190 : Math.max(1320, Math.min(3190, prefs.elo()))) - 1320);
-        strengthSeekBar.setProgressTintList(ColorStateList.valueOf(Ui.ACCENT));
-        strengthSeekBar.setThumbTintList(ColorStateList.valueOf(Ui.ACCENT));
-        strengthSeekBar.setProgressBackgroundTintList(ColorStateList.valueOf(Ui.CARD_BORDER));
-        strengthSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            private boolean movedByUser;
-
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                if (!fromUser) return;
-                movedByUser = true;
-                strengthValue.setText((1320 + progress) + " ELO");
-                strengthValue.setTextColor(Ui.TEXT);
-                strengthMaxButton.setText("USE MAX");
-                strengthMaxButton.setTextColor(Ui.TEXT);
-                strengthMaxButton.setBackground(Ui.round(Ui.CHIP, Ui.CARD_BORDER, SettingsActivity.this, 11));
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-                movedByUser = false;
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-                if (!movedByUser) return;
-                prefs.setElo(1320 + seekBar.getProgress());
-                push();
-                refreshAll();
-                movedByUser = false;
-            }
-        });
-        strengthPanel.addView(strengthSeekBar, Ui.lpTop(this, Ui.dp(this, 38), 2));
-
-        LinearLayout strengthScale = Ui.row(this);
-        TextView strengthMin = Ui.text(this, "1320", 10.5f, Ui.TEXT_DIM, false);
-        TextView strengthMax = Ui.text(this, "3190 ELO", 10.5f, Ui.TEXT_DIM, false);
-        strengthMax.setGravity(Gravity.END);
-        strengthScale.addView(strengthMin, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        strengthScale.addView(strengthMax, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        strengthPanel.addView(strengthScale, Ui.lpTop(this, 0, 0));
-        strengthPanel.addView(Ui.text(this, "Choose a target rating, or use MAX for unrestricted strength.",
-                10.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 5));
-        play.addView(strengthPanel, Ui.lpTop(this, 0, 6));
+        strengthRow = Ui.chipRow(this);
+        play.addView(strengthRow, Ui.lpTop(this, 0, 6));
 
         play.addView(Ui.text(this, "Thinking time per hint", 12.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 12));
         timeRow = Ui.chipRow(this);
@@ -226,8 +159,8 @@ public class SettingsActivity extends Activity {
         // -------------------------------------------------- ABOUT
         LinearLayout about = Ui.card(this);
         about.addView(Ui.sectionTitle(this, "ABOUT"));
-        about.addView(Ui.text(this, "Version 2.2  •  Stockfish 19", 13.5f, Ui.TEXT, true));
-        about.addView(Ui.text(this, "Native Stockfish 19 engine compiled for ARM64 / ARMv7 / x86_64.\n"
+        about.addView(Ui.text(this, "Version 2.3  •  Stockfish 19", 13.5f, Ui.TEXT, true));
+        about.addView(Ui.text(this, "Native Stockfish 19 build target for ARM64 / ARMv7 / x86_64.\n"
                 + "Runs 100% offline — the board is read directly on your device and every suggested move is strictly validated against chess rules.",
                 12f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 6));
         root.addView(about, Ui.lpTop(this, 0, 12));
@@ -317,16 +250,18 @@ public class SettingsActivity extends Activity {
             refreshAll();
         }));
 
-        // strength slider and full-strength shortcut
-        boolean maxStrength = prefs.elo() <= 0;
-        int targetElo = maxStrength ? 3190 : Math.max(1320, Math.min(3190, prefs.elo()));
-        strengthSeekBar.setProgress(targetElo - 1320);
-        strengthValue.setText(maxStrength ? "MAX STRENGTH" : targetElo + " ELO");
-        strengthValue.setTextColor(maxStrength ? Ui.ACCENT : Ui.TEXT);
-        strengthMaxButton.setText(maxStrength ? "MAX ACTIVE" : "USE MAX");
-        strengthMaxButton.setBackground(Ui.round(maxStrength ? Ui.CHIP_SEL : Ui.CHIP,
-                maxStrength ? 0 : Ui.CARD_BORDER, this, 11));
-        strengthMaxButton.setTextColor(maxStrength ? 0xFF06210F : Ui.TEXT);
+        // strength
+        strengthRow.removeAllViews();
+        int[] elos = {-1, 2850, 2400, 1800, 1400};
+        String[] names = {"MAX", "2850", "2400", "1800", "1400"};
+        for (int i = 0; i < elos.length; i++) {
+            final int e = elos[i];
+            strengthRow.addView(Ui.chip(this, names[i], prefs.elo() == e, v -> {
+                prefs.setElo(e);
+                push();
+                refreshAll();
+            }));
+        }
 
         // time
         timeRow.removeAllViews();

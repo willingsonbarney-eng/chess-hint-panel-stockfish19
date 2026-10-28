@@ -1,9 +1,8 @@
 # Install & first run
 
 ## 1. Install the APK
-1. Copy `apk/ChessHintPanel-v1.7.apk` to the phone (or open the link in the browser).
-2. Tap the file. Android will warn about installing from an unknown source —
-   choose **Settings → Allow from this source**, then **Install**.
+1. Build the repaired APK using [`docs/BUILDING.md`](BUILDING.md). This source ZIP does **not** include a newly built v2.3 APK; the APKs under `apk/` are historical, unrepaired releases.
+2. Copy the newly built `build/out/ChessHintPanel-v2.3.apk` to the phone and tap it. Android may ask you to allow the file manager to install unknown apps; allow it for that source, then install.
 
 ## 2. Give the two permissions
 | Step | What to tap | What it is for |
@@ -20,7 +19,7 @@ A small **♞ HINT** button appears — drag it wherever you like.
 3. The first time, if the panel cannot find the board automatically:
    * tap **FIT BOARD FRAME** and drag the yellow frame exactly onto the board, **SAVE**,
    * if the pieces look wrong, tap **FIX POSITION** and correct them once.
-4. From then on the panel follows the game by itself — turn **AUTO** on for a hint on every
+4. After the current position is trusted, the panel follows supported moves. If recognition is ambiguous, it withholds analysis until the board is readable again or you confirm the position. Turn **AUTO** on for a hint on every
    one of your turns.
 
 ## Troubleshooting

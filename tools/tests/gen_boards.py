@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generate synthetic phone screenshots of chess apps to test the screen reader."""
-import os, math, random
+import os, math, random, sys
 from PIL import Image, ImageDraw
 
-OUT = "/home/user/build/test/boards"
+OUT = sys.argv[1] if len(sys.argv) > 1 else "build/test/boards"
 os.makedirs(OUT, exist_ok=True)
 
 START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"

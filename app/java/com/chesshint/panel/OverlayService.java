@@ -148,6 +148,8 @@ public class OverlayService extends Service implements
     private UciEngine engine;
     private Track track;
     private Vision.Result lastVisionResult;
+    /** True while the current screen observation cannot be reconciled to a trusted position. */
+    private volatile boolean visionPositionUncertain = true;
 
     private OverlayView overlay;
     private BubbleView bubble;
@@ -293,7 +295,7 @@ public class OverlayService extends Service implements
         try { removeAllWindows(); } catch (Throwable ignored) { }
         try { purgeAllWindows(); } catch (Throwable ignored) { }
         releaseCaptureOnly();
-        try { if (engine != null) engine.stop(); } catch (Throwable ignored) { }
+        try { if (engine != null) engine.shutdown(); } catch (Throwable ignored) { }
         try { if (workerThread != null) workerThread.quitSafely(); } catch (Throwable ignored) { }
         try { stopForeground(true); } catch (Throwable ignored) { }
         try {
@@ -885,8 +887,8 @@ public class OverlayService extends Service implements
     @Override
     public void onFlip() {
         prefs.setWhiteBottom(!prefs.whiteBottom());
-        track = null;
-        lastAutoPattern = null;
+        if (track != null) track.setWhiteBottom(prefs.whiteBottom());
+        lastAutoPattern = track == null ? null : Chess.pattern(track.pos, prefs.whiteBottom());
         hintSquareSig = null;
         prevPollSig = null;
         waitingForOpponent = false;
@@ -904,7 +906,8 @@ public class OverlayService extends Service implements
         Chess.Pos p = Chess.fromBoard(Board.starting(prefs.whiteBottom()), prefs.whiteBottom(), Chess.WHITE);
         if (track == null) track = new Track(p, prefs.whiteBottom());
         else track.reset(p);
-        lastAutoPattern = null;
+        visionPositionUncertain = false;
+        lastAutoPattern = Chess.pattern(p, prefs.whiteBottom());
         hintSquareSig = null;
         prevPollSig = null;
         waitingForOpponent = !prefs.whiteBottom();
@@ -979,8 +982,9 @@ public class OverlayService extends Service implements
         int side = Math.max(r.width(), r.height());
         Rect sq = new Rect(r.left, r.top, r.left + side, r.top + side);
         prefs.setBoardRect(sq);
-        track = null;
-        lastAutoPattern = null;
+        // Reframing a screen region does not change the underlying chess-piece identities.
+        // Keep the tracker and let the next capture reconcile against it.
+        lastAutoPattern = track == null ? null : Chess.pattern(track.pos, prefs.whiteBottom());
         hintSquareSig = null;
         hintCleanSig = null;
         prevPollSig = null;
@@ -1032,8 +1036,7 @@ public class OverlayService extends Service implements
                     if (!quiet) toast("Open your chess app, then tap FIT BOARD");
                 } else {
                     prefs.setBoardRect(found);
-                    track = null;
-                    lastAutoPattern = null;
+                    lastAutoPattern = track == null ? null : Chess.pattern(track.pos, prefs.whiteBottom());
                     hintSquareSig = null;
                     hintCleanSig = null;
                     prevPollSig = null;
@@ -1102,16 +1105,23 @@ public class OverlayService extends Service implements
             overlay.applyPrefs(prefs);
         }
         Chess.Pos p = Chess.fromBoard(b, whiteBottom, whiteBottom ? Chess.WHITE : Chess.BLACK);
+        // A visual board editor cannot know whether a king or rook previously moved. Do not
+        // invent castling rights from home-square placement; use an explicit FEN to preserve them.
+        p.castling = "-";
         if (track == null) track = new Track(p, whiteBottom);
         else track.reset(p);
+        String boardWarn = b.validate(whiteBottom);
+        String engineWarn = Chess.enginePositionProblem(p);
+        visionPositionUncertain = engineWarn != null;
         lastAutoPattern = Chess.pattern(p, whiteBottom);
         hintSquareSig = null;
         prevPollSig = null;
         waitingForOpponent = false;
         hideEditor();
-        String warn = b.validate(whiteBottom);
-        if (!warn.isEmpty()) toast("Heads up: " + warn);
-        setStatus("Position set", (whiteBottom ? "white" : "black") + " to move");
+        if (!boardWarn.isEmpty()) toast("Position needs correction: " + boardWarn);
+        else if (engineWarn != null) toast("Position not sent to Stockfish: " + engineWarn + ". Use a valid board/FEN.");
+        setStatus(visionPositionUncertain ? "Position needs correction" : "Position set",
+                (whiteBottom ? "white" : "black") + " to move");
     }
 
     @Override public void onEditorCancel() { hideEditor(); }
@@ -1127,98 +1137,77 @@ public class OverlayService extends Service implements
     // ==================================================================== position reconciliation & helpers
 
     /**
-     * Reconciles a clean Vision.Result with our tracked Chess.Pos:
-     * 1. Checks if the board is within 0..3 plies of the standard starting position.
-     * 2. Otherwise attempts legal move tracking via Track.observe().
-     * 3. If any square's occupancy/color in track.pos still disagrees with res.colorPat,
-     *    reconciles by preserving known piece types on unmoved squares, transferring the
-     *    moving piece type when a single piece moved, and classifying any remaining squares
-     *    via Vision.guessBoard(), followed by Chess.sanitize().
+     * Reconciles a screen observation against a trusted chess position. A guessed silhouette
+     * board is never allowed to replace an existing tracker: if a frame cannot be explained by
+     * legal transitions (with at most one low-confidence square correction), we retain the last
+     * trusted state and wait for a clearer frame or explicit board-editor/FEN confirmation.
      */
     private void syncTrackerWithVision(Vision.Result res, int expectedSide) {
-        boolean detectedWb = Vision.detectWhiteBottom(res, prefs.whiteBottom());
-        if (detectedWb != prefs.whiteBottom()) {
-            prefs.setWhiteBottom(detectedWb);
-            track = null;
-            lastAutoPattern = null;
-        }
-        boolean wb = prefs.whiteBottom();
-        int targetSide = (expectedSide == Chess.WHITE || expectedSide == Chess.BLACK)
-                ? expectedSide : (wb ? Chess.WHITE : Chess.BLACK);
-
-        // 1. Check if the board is at or within 1-2 moves of the starting position
-        Chess.Pos startPos = Chess.fromBoard(Board.starting(wb), wb, Chess.WHITE);
-        Track fresh = new Track(startPos, wb);
-        Track.Update uFresh = fresh.observe(res.colorPat, res.conf);
-        if (uFresh.ok && uFresh.moves.size() <= 3
-                && java.util.Arrays.equals(Chess.pattern(fresh.pos, wb), res.colorPat)) {
-            fresh.pos.side = targetSide;
-            Chess.sanitize(fresh.pos);
-            track = fresh;
+        if (res == null || !res.ok || res.colorPat == null || res.colorPat.length != 64
+                || res.conf == null || res.conf.length != 64) {
+            visionPositionUncertain = true;
             return;
         }
 
-        // 2. Try legal move tracking from existing track
-        Chess.Pos prevPos = track != null ? track.pos.copy() : null;
+        boolean detectedWb = Vision.detectWhiteBottom(res, prefs.whiteBottom());
+        if (detectedWb != prefs.whiteBottom()) {
+            prefs.setWhiteBottom(detectedWb);
+            // Orientation changes only the screen-index mapping; the underlying chess squares
+            // and established piece identities remain valid.
+            if (track != null) track.setWhiteBottom(detectedWb);
+            lastAutoPattern = track == null ? null : Chess.pattern(track.pos, detectedWb);
+            lastSelectedIdx = -1;
+            lastUserMoveToIdx = -1;
+        }
+        final boolean wb = prefs.whiteBottom();
+        // Zero means the caller cannot infer the turn from this observation. Never replace
+        // the tracked side-to-move with a side inferred from screen orientation alone.
+        final int expectedTurn = (expectedSide == Chess.WHITE || expectedSide == Chess.BLACK)
+                ? expectedSide : 0;
+
+        // The standard start is only a bootstrap source when no trusted tracker exists.
+        // A visual occupancy match alone cannot prove that a mid-game board is a new game.
+        Chess.Pos startPos = Chess.fromBoard(Board.starting(wb), wb, Chess.WHITE);
         if (track != null) {
             track.setWhiteBottom(wb);
-            Track.Update u = track.observe(res.colorPat, res.conf);
-            if (u.ok && java.util.Arrays.equals(Chess.pattern(track.pos, wb), res.colorPat)) {
-                track.pos.side = targetSide;
-                Chess.sanitize(track.pos);
+            Track.Update update = track.observe(res.colorPat, res.conf, res.pieceCode,
+                    res.pieceTypeConf, expectedTurn);
+            if (update.ok) {
+                // Track has already derived side-to-move from the legal move sequence. Do not
+                // overwrite it and sanitize afterward: if a moved piece gives check, changing
+                // turns used to make the legacy sanitizer relabel the checking piece to remove check.
+                visionPositionUncertain = false;
                 return;
             }
+
+            // Important: do not call Vision.guessBoard() here. It classifies each frame afresh,
+            // can change stationary-piece identities, and can generate an illegal FEN.
+            visionPositionUncertain = true;
+            if (track.lastInfo == null || !track.lastInfo.startsWith("UNCERTAIN:")) {
+                track.lastInfo = "UNCERTAIN: waiting for a clear, legal board transition";
+            }
+            return;
         }
 
-        // 3. Reconcile previous known pieces with fresh Vision.guessBoard(res, wb)
-        //    ONLY if prevPos is within 1 move per side of res.colorPat (not a stale starting board!)
-        Board guessed = Vision.guessBoard(res, wb);
-        if (prevPos != null) {
-            Board prevBoard = Chess.toBoard(prevPos, wb);
-            int wFrom = -1, wTo = -1, wFromCnt = 0, wToCnt = 0;
-            int bFrom = -1, bTo = -1, bFromCnt = 0, bToCnt = 0;
-            for (int i = 0; i < 64; i++) {
-                int oldC = Board.isWhite(prevBoard.s[i]) ? 1 : (Board.isBlack(prevBoard.s[i]) ? 2 : 0);
-                int newC = res.colorPat[i];
-                if (oldC == 1 && newC != 1) { wFrom = i; wFromCnt++; }
-                if (oldC != 1 && newC == 1) { wTo = i; wToCnt++; }
-                if (oldC == 2 && newC != 2) { bFrom = i; bFromCnt++; }
-                if (oldC != 2 && newC == 2) { bTo = i; bToCnt++; }
-            }
-            if (wFromCnt <= 1 && wToCnt <= 1 && bFromCnt <= 1 && bToCnt <= 1) {
-                for (int i = 0; i < 64; i++) {
-                    int oldC = Board.isWhite(prevBoard.s[i]) ? 1 : (Board.isBlack(prevBoard.s[i]) ? 2 : 0);
-                    int newC = res.colorPat[i];
-                    if (oldC != 0 && oldC == newC) {
-                        byte prevP = prevBoard.s[i];
-                        float pH = res.pieceHeight[i];
-                        // Do not overwrite if visual piece height strongly contradicts prevP (e.g. Pawn vs tall piece)
-                        if (pH > 0.1f && pH < 0.67f) {
-                            guessed.s[i] = (byte) (newC == 1 ? 1 : 9);
-                        } else if (pH > 0.74f && (prevP == 1 || prevP == 9)) {
-                            // keep guessed.s[i] (tall piece)
-                        } else {
-                            guessed.s[i] = prevP;
-                        }
-                    }
-                }
-                if (wFromCnt == 1 && wToCnt == 1 && wFrom >= 0 && wTo >= 0) {
-                    byte moved = prevBoard.s[wFrom];
-                    int rIdx = Board.rankIdxOf(wTo, wb);
-                    if (moved == 1 && (rIdx == 0 || rIdx == 7)) moved = 5;
-                    guessed.s[wTo] = moved;
-                }
-                if (bFromCnt == 1 && bToCnt == 1 && bFrom >= 0 && bTo >= 0) {
-                    byte moved = prevBoard.s[bFrom];
-                    int rIdx = Board.rankIdxOf(bTo, wb);
-                    if (moved == 9 && (rIdx == 0 || rIdx == 7)) moved = 13;
-                    guessed.s[bTo] = moved;
-                }
-            }
+        // First-time bootstrap is intentionally limited to the standard start position or a
+        // short, unique legal sequence from it. Arbitrary mid-game states must be confirmed in
+        // the existing board editor or through FEN input; a silhouette-only guess is not trusted.
+        Track fresh = new Track(startPos, wb);
+        Track.Update boot = fresh.observe(res.colorPat, res.conf, res.pieceCode,
+                res.pieceTypeConf, expectedTurn);
+        if (boot.ok && !boot.ambiguous && boot.moves.size() <= 3
+                && boot.matchedPattern != null
+                && java.util.Arrays.equals(Chess.pattern(fresh.pos, wb), boot.matchedPattern)) {
+            // Keep the turn supplied by actual legal moves; never coerce it to the UI's guess.
+            track = fresh;
+            visionPositionUncertain = false;
+            return;
         }
-        Chess.Pos reconciled = Chess.fromBoard(guessed, wb, targetSide);
-        if (track == null) track = new Track(reconciled, wb);
-        else track.reset(reconciled);
+
+        // No trusted source of piece identities yet. Leave the engine disabled until the user
+        // confirms the actual arbitrary position instead of inventing piece types.
+        track = null;
+        visionPositionUncertain = true;
     }
 
     /**
@@ -1392,16 +1381,35 @@ public class OverlayService extends Service implements
         final Rect snappedRect = new Rect(r);
 
         syncTrackerWithVision(res, 0);
+        if (visionPositionUncertain || track == null) {
+            postSafe(() -> finishBusy(track == null
+                    ? "Board position is not trusted yet — set it in the board editor or enter its FEN"
+                    : "Board recognition is uncertain — hold the board still or confirm it in the editor"));
+            return;
+        }
         final boolean wb = prefs.whiteBottom();
         final int userSide = wb ? Chess.WHITE : Chess.BLACK;
-        lastAutoPattern = res.colorPat.clone();
+        lastAutoPattern = Chess.pattern(track.pos, wb);
         waitingForOpponent = false;
         hintSquareSig = null;
         hintCleanSig = cleanSig;
 
+        if (track.pos.side != userSide) {
+            postSafe(() -> finishBusy("Not your turn yet — wait for the opponent's move"));
+            return;
+        }
+        // Strictly preflight the exact tracked position. Never sanitize or rewrite piece types
+        // to make an inconsistent FEN pass; Stockfish 19 rejects such inputs.
+        String positionProblem = Chess.enginePositionProblem(track.pos);
+        if (positionProblem != null) {
+            visionPositionUncertain = true;
+            track.lastInfo = "UNCERTAIN: " + positionProblem;
+            postSafe(() -> finishBusy("Position is not valid for analysis: " + positionProblem
+                    + ". Confirm the board or FEN."));
+            return;
+        }
+        // The trusted tracker stores the actual FEN turn. Never force a different side here.
         Chess.Pos usePos = track.pos.copy();
-        usePos.side = userSide;
-        Chess.sanitize(usePos);
 
         // Collect all visually valid legal moves in usePos
         List<Chess.Move> allValidMoves = new ArrayList<>();
@@ -1411,15 +1419,10 @@ public class OverlayService extends Service implements
             }
         }
         if (allValidMoves.isEmpty()) {
-            Board freshGuessed = Vision.guessBoard(res, wb);
-            usePos = Chess.fromBoard(freshGuessed, wb, userSide);
-            Chess.sanitize(usePos);
-            track.reset(usePos);
-            for (Chess.Move lm : Chess.legal(usePos)) {
-                if (isVisuallyValidMove(res, usePos, lm.uci(), wb, userSide)) {
-                    allValidMoves.add(lm);
-                }
-            }
+            visionPositionUncertain = true;
+            if (track != null) track.lastInfo = "UNCERTAIN: no legal move agrees with the current image";
+            postSafe(() -> finishBusy("No visually consistent legal move — re-fit the board or correct the position"));
+            return;
         }
 
         // Check whether the user currently has one of their own pieces selected on the board
@@ -1505,14 +1508,6 @@ public class OverlayService extends Service implements
         String mv = UciEngine.moveOf(bm);
 
         // Strictly verify that the suggested move is 100% legal AND visually clear on the live screen
-        if (!isVisuallyValidMove(res, usePos, mv, wb, userSide)) {
-            Board freshGuessed = Vision.guessBoard(res, wb);
-            usePos = Chess.fromBoard(freshGuessed, wb, userSide);
-            Chess.sanitize(usePos);
-            track.reset(usePos);
-            bm = engine.bestMove(usePos.fen(), Math.max(800, prefs.movetime() / 2), prefs.elo());
-            mv = UciEngine.moveOf(bm);
-        }
 
         final int depth = engine.depth, cp = engine.scoreCp, mate = engine.mateIn;
 
@@ -2027,8 +2022,8 @@ public class OverlayService extends Service implements
                 boolean detectedWb = Vision.detectWhiteBottom(res, prefs.whiteBottom());
                 if (detectedWb != prefs.whiteBottom()) {
                     prefs.setWhiteBottom(detectedWb);
-                    track = null;
-                    lastAutoPattern = null;
+                    if (track != null) track.setWhiteBottom(detectedWb);
+                    lastAutoPattern = track == null ? null : Chess.pattern(track.pos, detectedWb);
                     lastSelectedIdx = -1;
                     lastUserMoveToIdx = -1;
                 }
@@ -2041,8 +2036,10 @@ public class OverlayService extends Service implements
                             && countColorInRange(res.colorPat, 16, 64, Chess.WHITE) == 0;
                     if (whiteUnmovedAtTop) {
                         syncTrackerWithVision(res, Chess.WHITE);
-                        lastAutoPattern = res.colorPat.clone();
-                        waitingForOpponent = true;
+                        if (!visionPositionUncertain && track != null) {
+                            lastAutoPattern = Chess.pattern(track.pos, prefs.whiteBottom());
+                            waitingForOpponent = true;
+                        }
                         postSafe(() -> busy = false);
                         return;
                     }
@@ -2086,7 +2083,9 @@ public class OverlayService extends Service implements
                     syncTrackerWithVision(res, Chess.WHITE);
                     wb = prefs.whiteBottom();
                     userSide = wb ? Chess.WHITE : Chess.BLACK;
-                    lastAutoPattern = res.colorPat.clone();
+                    if (!visionPositionUncertain && track != null) {
+                        lastAutoPattern = Chess.pattern(track.pos, wb);
+                    }
                     boolean whiteUnmovedAtTop = !wb && countColorInRange(res.colorPat, 0, 16, Chess.WHITE) == 16
                             && countColorInRange(res.colorPat, 16, 64, Chess.WHITE) == 0;
                     waitingForOpponent = (userSide == Chess.BLACK && whiteUnmovedAtTop);
@@ -2105,8 +2104,10 @@ public class OverlayService extends Service implements
                     // User just made their move; clear any hint and wait for opponent's reply
                     lastSelectedIdx = -1;
                     syncTrackerWithVision(res, oppSide);
-                    lastAutoPattern = res.colorPat.clone();
-                    waitingForOpponent = true;
+                    if (!visionPositionUncertain && track != null) {
+                        lastAutoPattern = Chess.pattern(track.pos, prefs.whiteBottom());
+                        waitingForOpponent = true;
+                    }
                     postSafe(() -> {
                         if (overlay != null) overlay.clearHint();
                         busy = false;
@@ -2118,11 +2119,13 @@ public class OverlayService extends Service implements
                     // Opponent just made their move (or user + bot both moved); now it is the user's turn!
                     lastSelectedIdx = selIdx;
                     syncTrackerWithVision(res, userSide);
-                    lastAutoPattern = res.colorPat.clone();
-                    waitingForOpponent = false;
+                    if (!visionPositionUncertain && track != null) {
+                        lastAutoPattern = Chess.pattern(track.pos, prefs.whiteBottom());
+                        waitingForOpponent = false;
+                    }
                     postSafe(() -> {
                         busy = false;
-                        if (prefs.auto() || selIdx >= 0) {
+                        if (!visionPositionUncertain && (prefs.auto() || selIdx >= 0)) {
                             requestHint(true);
                         }
                     });
@@ -2276,7 +2279,8 @@ public class OverlayService extends Service implements
     }
 
     public static String currentFen() {
-        return !isRunning() || INSTANCE.track == null ? null : INSTANCE.track.pos.fen();
+        if (!isRunning() || INSTANCE.track == null || INSTANCE.visionPositionUncertain) return null;
+        return Chess.enginePositionProblem(INSTANCE.track.pos) == null ? INSTANCE.track.pos.fen() : null;
     }
 
     public static String diagnostics() {
@@ -2289,7 +2293,8 @@ public class OverlayService extends Service implements
         return "Screen capture: " + (s.grab != null ? "yes" : "no") + "\n"
                 + "Engine: " + (s.engine != null && s.engine.isAlive() ? "ready" : "starting") + "\n"
                 + "Board frame: " + (s.prefs.boardRect() == null ? "not set" : s.prefs.boardRect().toShortString()) + "\n"
-                + "Position: " + (s.track == null ? "not tracked" : s.track.pos.fen());
+                + "Position: " + (s.track == null ? "not tracked"
+                    : (s.visionPositionUncertain ? "uncertain; retained last trusted position" : s.track.pos.fen()));
     }
 
     public static void applyFen(String fen) {
@@ -2307,10 +2312,22 @@ public class OverlayService extends Service implements
             String[] parts = fen.trim().split("\\s+");
             int side = (parts.length > 1 && parts[1].toLowerCase().startsWith("b")) ? Chess.BLACK : Chess.WHITE;
             Chess.Pos p = Chess.fromBoard(b, prefs.whiteBottom(), side);
-            if (parts.length > 2 && parts[2].length() > 0 && !parts[2].equals("-")) p.castling = parts[2];
+            if (parts.length > 2 && !parts[2].isEmpty()) p.castling = parts[2];
+            if (parts.length > 3 && !parts[3].isEmpty() && !parts[3].equals("-")) {
+                p.epSq = Chess.sqFromName(parts[3]);
+                if (p.epSq < 0) { toast("Invalid en-passant target in FEN"); return; }
+            } else {
+                p.epSq = -1;
+            }
+            String positionProblem = Chess.enginePositionProblem(p);
+            if (positionProblem != null) {
+                toast("FEN rejected: " + positionProblem);
+                return;
+            }
             if (track == null) track = new Track(p, prefs.whiteBottom());
             else track.reset(p);
-            lastAutoPattern = null;
+            visionPositionUncertain = false;
+            lastAutoPattern = Chess.pattern(p, prefs.whiteBottom());
             setStatus("Position loaded", (side == Chess.WHITE ? "white" : "black") + " to move");
         } catch (Throwable t) {
             toast("Could not read that FEN");

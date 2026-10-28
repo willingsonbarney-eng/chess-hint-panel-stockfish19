@@ -42,7 +42,7 @@ public class Prefs {
     public boolean auto() { return sp.getBoolean("auto_v3", true); }
     public void setAuto(boolean b) { sp.edit().putBoolean("auto_v3", b).apply(); }
 
-    /** -1 = maximum strength, else a target Elo (1320..3190) */
+    /** -1 = maximum strength, else a target Elo (1350..2850) */
     public int elo() { return sp.getInt("elo", -1); }
     public void setElo(int e) { sp.edit().putBoolean("elo_set", true).putInt("elo", e).apply(); }
 

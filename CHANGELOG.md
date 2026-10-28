@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.3 — repair source update (APK not built in this environment)
+
+* Fixed the recognition handoff that could replace a trusted position with fresh per-frame silhouette guesses after a tracker mismatch.
+* Added persistent position reconciliation, confidence-aware rejection/correction, special-move coverage, ambiguous-path rejection, and bounded-search safety.
+* Removed live-engine fallback paths that could send guessed/uncertain FENs to Stockfish; engine analysis now pauses when the trusted state is uncertain.
+* Replaced the old Stockfish 11 UCI/JNI interface with a Stockfish 19 (`sf_19`) source-build path, version/handshake checks, serialized UCI search handling, and improved native shutdown/restart lifecycle handling.
+* Removed automatic sanitization from FEN serialization and legal move application; added strict engine-position preflight and FEN metadata preservation so invalid turn/check/castling/en-passant state is rejected instead of changing piece identities. The visual editor clears unknown castling rights; use explicit FEN to preserve full move-state metadata.
+* Added tracker, chess-core, and synthetic vision regression tests; documented the exact SDK/network blockers preventing a verified APK build here.
+
 ## v1.9 — current
 **Fixed `libstockfish.so` `dlopen` symbol error (`engine: not running`) & false board detection on home screen**
 

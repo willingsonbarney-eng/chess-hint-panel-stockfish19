@@ -22,7 +22,9 @@ public class Vision {
 
     public static class Result {
         public int[] colorPat = new int[64];    // 0 empty, 1 white piece, 2 black piece
-        public float[] conf = new float[64];    // certainty per square (0..1)
+        public float[] conf = new float[64];    // occupancy certainty per square (0..1)
+        public int[] pieceCode = new int[64];   // heuristic type evidence in Board piece-code format
+        public float[] pieceTypeConf = new float[64]; // heuristic shape confidence; not a calibrated probability
         public int[] centerRgb = new int[64];
         public float[] inkFrac = new float[64];
         public float[] pieceHeight = new float[64];
@@ -1183,6 +1185,13 @@ public class Vision {
 
         res.ok = true;
         res.note = "occ=" + occ;
+        // Compute optional piece-type evidence once per frame. The tracker uses it only to
+        // disambiguate legal whole-board transitions (not to overwrite known stationary pieces).
+        for (int i = 0; i < 64; i++) {
+            if (res.colorPat[i] == 0) continue;
+            res.pieceCode[i] = guessType(res, i, res.colorPat[i] == 1);
+            res.pieceTypeConf[i] = guessTypeConfidence(res, i, res.pieceCode[i]);
+        }
         return res;
     }
 
@@ -1274,6 +1283,59 @@ public class Vision {
             type = 3; // bishop fallback
         }
         return isWhite ? type : type + 8;
+    }
+
+    /**
+     * Returns a conservative geometric margin for the current rule-based silhouette class.
+     * This is a heuristic confidence, not a trained/calibrated probability. Explicitly matching
+     * a class signature can provide useful evidence for ambiguity resolution; fallback classes
+     * intentionally remain below the tracker's acceptance threshold.
+     */
+    public static float guessTypeConfidence(Result res, int idx, int code) {
+        if (res == null || idx < 0 || idx >= 64 || res.colorPat[idx] == 0) return 0f;
+        float pH = res.pieceHeight[idx];
+        float asym = res.asym[idx];
+        float ink = res.inkFrac[idx];
+        float[] rawB = res.bands[idx];
+        float maxB = 1e-4f;
+        for (int b = 0; b < 8; b++) if (rawB[b] > maxB) maxB = rawB[b];
+        float[] nb = new float[8];
+        for (int b = 0; b < 8; b++) nb[b] = rawB[b] / maxB;
+
+        int type = code > 8 ? code - 8 : code;
+        float margin = -1f;
+        if (type == 1) {
+            float pawnInkRef = 0.36f;
+            int occCnt = 0;
+            float[] occInks = new float[64];
+            for (int i = 0; i < 64; i++) if (res.colorPat[i] != 0) occInks[occCnt++] = res.inkFrac[i];
+            if (occCnt >= 6) {
+                java.util.Arrays.sort(occInks, 0, occCnt);
+                pawnInkRef = occInks[Math.min(occCnt - 1, occCnt / 4)];
+            }
+            if (pH < 0.675f) margin = (0.675f - pH) / 0.12f;
+            else if (nb[0] < 0.50f && nb[3] < 0.65f && nb[4] < 0.63f)
+                margin = Math.min(0.50f - nb[0], Math.min(0.65f - nb[3], 0.63f - nb[4])) / 0.15f;
+            else if (pH < 0.695f && ink <= pawnInkRef * 1.12f)
+                margin = Math.min((0.695f - pH) / 0.05f, (pawnInkRef * 1.12f - ink) / 0.18f);
+        } else if (type == 4) {
+            if ((nb[0] > 0.50f && nb[1] > nb[3] + 0.08f && nb[1] > nb[4] + 0.07f)) {
+                margin = Math.min(nb[0] - 0.50f, Math.min(nb[1] - nb[3] - 0.08f, nb[1] - nb[4] - 0.07f)) / 0.15f;
+            } else if (nb[0] >= 0.46f && nb[1] >= nb[3] - 0.01f && nb[2] > nb[3] + 0.14f && nb[5] < 0.82f) {
+                margin = Math.min(nb[0] - 0.46f, Math.min(nb[2] - nb[3] - 0.14f, 0.82f - nb[5])) / 0.15f;
+            }
+        } else if (type == 2) {
+            if (asym > 0.105f) margin = (asym - 0.105f) / 0.10f;
+        } else if (type == 6) {
+            margin = Math.min(0.42f - nb[0], Math.min(0.56f - nb[1], Math.min(nb[2] - 0.80f,
+                    Math.min((nb[2] - nb[1]) - 0.24f, Math.min(nb[5] - 0.85f, 0.06f - asym))))) / 0.15f;
+        } else if (type == 3) {
+            margin = Math.min(0.36f - nb[0], Math.min(0.45f - nb[1], Math.min(0.78f - nb[2], 0.84f - nb[5]))) / 0.15f;
+        } else if (type == 5) {
+            margin = Math.min(nb[3] - 0.82f, nb[4] - 0.82f) / 0.15f;
+        }
+        if (margin < 0f) return 0.40f; // rule fallback: useful for rendering, not sufficient to break a tie
+        return Math.max(0f, Math.min(0.98f, 0.52f + 0.43f * Math.max(0f, Math.min(1f, margin))));
     }
 
     /**
