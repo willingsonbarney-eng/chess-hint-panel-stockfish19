@@ -23,16 +23,16 @@ SOFTWARE.
 ---------------------------------------------------------------------------
 THIRD PARTY COMPONENTS
 
-1. Stockfish 19 source build target - https://github.com/official-stockfish/Stockfish/tree/sf_19
-   Licensed under GNU GPL version 3 or (at your option) any later version. The
-   build scripts pin the official `sf_19` source tag and use the upstream script
-   to fetch and hash-validate the NNUE network. See STOCKFISH.md and
-   THIRD_PARTY_LICENSES/GPL-3.0.txt. The JNI integration is native/jni_bridge.cpp.
-   This repair ZIP does not contain a newly built Stockfish 19 binary because
-   external source/network fetches were unavailable during repair. Anyone
-   distributing a compiled APK/shared library must provide the corresponding
-   source for the exact engine build and modifications, preserve notices, and
-   comply with GPLv3-or-later.
+1. Stockfish 19 - https://github.com/official-stockfish/Stockfish (tag sf_19)
+   Licensed under the GNU General Public License v3 (or later).
+   The APK contains a binary compiled from unmodified official Stockfish 19
+   sources plus the NNUE network that Stockfish 19 embeds.  The exact build
+   recipe is tools/build-stockfish-android.sh and the small bridge that links
+   the engine into the app is native/jni_bridge.cpp.  The full licence text
+   (Copying.txt) and the authors list are shipped inside the APK (assets/) and
+   the written offer of the corresponding source is docs/SOURCE-OFFER.txt.
+   Anyone redistributing the APK must comply with the GPLv3 for that part,
+   including making the corresponding source available.
    Stockfish is a trademark of the Stockfish project; this app is not
    affiliated with or endorsed by it.
 

@@ -1,51 +1,58 @@
-name: Build Signed APK
+name: Release APK
+
+# Same build as build.yml, but only for version tags / manual runs, and the APK is attached to a GitHub release.
+# Set the repository secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASS / ANDROID_KEY_ALIAS / ANDROID_KEY_PASS
+# to keep one signing identity across releases (otherwise a throw-away key is created and the APK cannot be updated in place).
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: [ 'v*' ]
   workflow_dispatch:
 
+env:
+  NDK_VERSION: 27.2.12479018
+  BUILD_TOOLS: 34.0.0
+  PLATFORM: android-34
+
+permissions:
+  contents: write
+
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Install screenshot-test dependency
-        run: python -m pip install pillow
-
-      - name: Run desktop regression tests
-        run: bash tools/test-desktop.sh
-
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Set up Android SDK & NDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Build Tools 34.0.0 & NDK
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;$PLATFORM" "build-tools;$BUILD_TOOLS" "ndk;$NDK_VERSION"
+      - name: Desktop tests
         run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.2.12479018"
-
-      - name: Build Native Stockfish Engine
+          sudo apt-get update && sudo apt-get install -y g++ make python3-pil
+          tools/run-host-tests.sh
+      - name: Stockfish 19 for ARM64
         run: |
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
-          bash tools/build-stockfish-android.sh
-
-      - name: Compile APK Classes & Resources
-        run: |
-          bash tools/build-apk.sh
-
-      - name: Package & Sign Release APK
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+          tools/build-stockfish-android.sh
+      - name: APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
         run: |
-          bash tools/package-apk.sh
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          export ANDROID_BUILD_TOOLS="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS"
+          export ANDROID_JAR="$ANDROID_SDK_ROOT/platforms/$PLATFORM/android.jar"
+          tools/build-apk.sh
+          tools/package-apk.sh
+          tools/check-apk.sh build/out/ChessHintPanel-v*.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: ChessHintPanel-apk, path: "build/out/ChessHintPanel-v*.apk" }
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/out/ChessHintPanel-v*.apk
+            build/jnilibs/engine-build-info.txt

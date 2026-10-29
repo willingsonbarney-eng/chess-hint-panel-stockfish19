@@ -59,7 +59,7 @@ public class Chess {
             return p;
         }
 
-        /** Serializes the exact position. FEN formatting must never silently change piece identities. */
+        /** FEN of exactly this position - nothing is rewritten on the way (see validate()) */
         public String fen() {
             StringBuilder sb = new StringBuilder();
             for (int r = 0; r < 8; r++) {
@@ -76,9 +76,17 @@ public class Chess {
                 if (r < 7) sb.append('/');
             }
             sb.append(side == WHITE ? " w " : " b ");
-            sb.append(castling == null || castling.isEmpty() ? "-" : castling);
+            sb.append(feasibleCastling(cb, castling));
             sb.append(' ').append(epSq >= 0 ? sq(epSq) : "-");
             sb.append(" 0 1");
+            return sb.toString();
+        }
+
+        /** identity of the position for de-duplication (board + side + castling + en passant) */
+        public String key() {
+            StringBuilder sb = new StringBuilder(80);
+            for (int v : cb) sb.append((char) ('A' + v));
+            sb.append(side).append(feasibleCastling(cb, castling)).append(epSq);
             return sb.toString();
         }
 
@@ -98,85 +106,131 @@ public class Chess {
             p.cb[(7 - r) * 8 + f] = b.s[i];
         }
         p.side = (side == BLACK) ? BLACK : WHITE;
-        // Infer only the castling rights supported by the visible home-square pieces.
-        // Do not sanitize: piece identities are user-confirmed input and must be preserved.
         p.castling = deriveCastling(p.cb);
         return p;
     }
 
     /**
-     * Strict preflight for positions sent to Stockfish. Invalid positions are rejected rather
-     * than silently rewritten (the old sanitizer could convert a checking rook/bishop/queen into
-     * another piece type to make an inconsistent FEN appear valid).
+     * Whole-position validation.  NEVER modifies the position (the old sanitize() silently
+     * rewrote piece identities - pawns into bishops, extra kings into queens, attackers into
+     * pawns - which is exactly how stationary pieces changed identity).  A position that fails
+     * is rejected, it is not "repaired".
      *
-     * @return null when the position passes these application-side checks; otherwise a reason.
+     * @return "" when the position is a legal chess position, otherwise the first problem found
      */
-    public static String enginePositionProblem(Pos p) {
-        if (p == null || p.cb == null || p.cb.length != 64) return "missing or malformed board";
-        if (p.side != WHITE && p.side != BLACK) return "invalid side to move";
-        int whiteKing = -1, blackKing = -1, whiteKings = 0, blackKings = 0;
-        int whiteCount = 0, blackCount = 0, whitePawns = 0, blackPawns = 0;
+    public static String validate(Pos p) {
+        if (p == null || p.cb == null) return "no position";
+        int[] cb = p.cb;
+        int[] w = new int[7], b = new int[7];
         for (int i = 0; i < 64; i++) {
-            int piece = p.cb[i];
-            if (piece == 0) continue;
-            if (piece < 1 || piece > 14 || piece == 7 || piece == 8)
-                return "invalid piece code on " + sq(i);
-            if (Board.isWhite(piece)) {
-                whiteCount++;
-                if (piece == 1) {
-                    whitePawns++;
-                    if (i < 8 || i >= 56) return "white pawn on a promotion rank";
-                }
-                if (piece == 6) { whiteKings++; whiteKing = i; }
-            } else {
-                blackCount++;
-                if (piece == 9) {
-                    blackPawns++;
-                    if (i < 8 || i >= 56) return "black pawn on a promotion rank";
-                }
-                if (piece == 14) { blackKings++; blackKing = i; }
-            }
+            int pc = cb[i];
+            if (pc == 0) continue;
+            if (pc >= 1 && pc <= 6) w[pc]++;
+            else if (pc >= 9 && pc <= 14) b[pc - 8]++;
+            else return "invalid piece code " + pc;
+            if ((pc == 1 || pc == 9) && (i < 8 || i >= 56)) return "pawn on the first/last rank";
         }
-        if (whiteKings != 1) return "position must contain exactly one white king";
-        if (blackKings != 1) return "position must contain exactly one black king";
-        if (whiteCount > 16 || blackCount > 16) return "too many pieces for a legal position";
-        if (whitePawns > 8 || blackPawns > 8) return "too many pawns for a legal position";
-        if (kingStep(whiteKing, blackKing)) return "kings may not be adjacent";
-        int notToMoveKing = p.side == WHITE ? blackKing : whiteKing;
-        if (attacked(p.cb, notToMoveKing, p.side)) return "side not to move is illegally in check";
+        if (w[6] != 1) return "white needs exactly one king (found " + w[6] + ")";
+        if (b[6] != 1) return "black needs exactly one king (found " + b[6] + ")";
+        String sw = sideCountProblem("white", w);
+        if (sw != null) return sw;
+        String sb = sideCountProblem("black", b);
+        if (sb != null) return sb;
+        int wk = p.king(true), bk = p.king(false);
+        if (kingStep(wk, bk)) return "the kings are next to each other";
+        if (p.side != WHITE && p.side != BLACK) return "side to move unknown";
+        int mover = p.side, other = 3 - p.side;
+        int otherKing = other == WHITE ? wk : bk;
+        if (attacked(cb, otherKing, mover)) return "the side that is not to move is in check";
+        int myKing = mover == WHITE ? wk : bk;
+        if (countAttackers(cb, myKing, other) > 2) return "king attacked by more than two pieces";
+        return "";
+    }
 
-        String rights = p.castling == null || p.castling.isEmpty() ? "-" : p.castling;
-        boolean[] seen = new boolean[128];
-        for (int i = 0; i < rights.length(); i++) {
-            char c = rights.charAt(i);
-            if (c == '-') {
-                if (rights.length() != 1) return "invalid castling field";
-                continue;
-            }
-            if (c != 'K' && c != 'Q' && c != 'k' && c != 'q') return "invalid castling field";
-            if (seen[c]) return "duplicate castling right";
-            seen[c] = true;
-            if (c == 'K' && (p.cb[60] != 6 || p.cb[63] != 4)) return "K castling right without king/rook on home squares";
-            if (c == 'Q' && (p.cb[60] != 6 || p.cb[56] != 4)) return "Q castling right without king/rook on home squares";
-            if (c == 'k' && (p.cb[4] != 14 || p.cb[7] != 12)) return "k castling right without king/rook on home squares";
-            if (c == 'q' && (p.cb[4] != 14 || p.cb[0] != 12)) return "q castling right without king/rook on home squares";
-        }
-        if (p.epSq != -1) {
-            if (p.epSq < 0 || p.epSq >= 64 || p.cb[p.epSq] != 0) return "invalid en-passant target square";
-            if (p.side == WHITE) {
-                if (p.epSq / 8 != 2 || p.epSq + 8 >= 64 || p.cb[p.epSq + 8] != 9
-                        || p.epSq - 8 < 0 || p.cb[p.epSq - 8] != 0)
-                    return "inconsistent en-passant state for white to move";
-            } else {
-                if (p.epSq / 8 != 5 || p.epSq - 8 < 0 || p.cb[p.epSq - 8] != 1
-                        || p.epSq + 8 >= 64 || p.cb[p.epSq + 8] != 0)
-                    return "inconsistent en-passant state for black to move";
-            }
-        }
+    private static String sideCountProblem(String name, int[] c) {
+        int total = 0;
+        for (int t = 1; t <= 6; t++) total += c[t];
+        if (total > 16) return "too many " + name + " pieces (" + total + ")";
+        if (c[1] > 8) return "too many " + name + " pawns (" + c[1] + ")";
+        int promoted = Math.max(0, c[5] - 1) + Math.max(0, c[4] - 2)
+                + Math.max(0, c[3] - 2) + Math.max(0, c[2] - 2);
+        if (c[1] + promoted > 8) return "too many " + name + " pieces for the pawns that are left";
         return null;
     }
 
-    // Invalid positions are rejected by enginePositionProblem(); do not mutate a board to make it look valid.
+    private static int countAttackers(int[] cb, int sq, int by) {
+        int n = 0;
+        for (int i = 0; i < 64; i++) {
+            int pc = cb[i];
+            if (pc == 0 || Board.isWhite(pc) != (by == WHITE)) continue;
+            if (attackedBySingle(cb, i, pc, sq)) n++;
+        }
+        return n;
+    }
+
+    /** does the piece standing on `from` attack `sq` on the real board? (kings count too) */
+    private static boolean attackedBySingle(int[] cb, int from, int pc, int sq) {
+        boolean white = Board.isWhite(pc);
+        int type = white ? pc : pc - 8;
+        int f0 = from % 8, r0 = from / 8, f1 = sq % 8, r1 = sq / 8;
+        int df = f1 - f0, dr = r1 - r0;
+        switch (type) {
+            case 1: return Math.abs(df) == 1 && dr == (white ? -1 : 1);
+            case 2: return (Math.abs(df) == 1 && Math.abs(dr) == 2) || (Math.abs(df) == 2 && Math.abs(dr) == 1);
+            case 6: return Math.abs(df) <= 1 && Math.abs(dr) <= 1 && (df != 0 || dr != 0);
+            default: break;
+        }
+        boolean diag = Math.abs(df) == Math.abs(dr) && df != 0;
+        boolean orth = (df == 0) != (dr == 0);
+        if (type == 3 && !diag) return false;
+        if (type == 4 && !orth) return false;
+        if (type == 5 && !diag && !orth) return false;
+        int sf = Integer.compare(df, 0), sr = Integer.compare(dr, 0);
+        int f = f0 + sf, r = r0 + sr;
+        while (f != f1 || r != r1) {
+            if (cb[r * 8 + f] != 0) return false;
+            f += sf; r += sr;
+        }
+        return true;
+    }
+
+    /** castling rights that are still physically possible (king + rook on their home squares) */
+    public static String feasibleCastling(int[] cb, String rights) {
+        if (rights == null) return "-";
+        StringBuilder sb = new StringBuilder();
+        if (cb[60] == 6) {
+            if (rights.indexOf('K') >= 0 && cb[63] == 4) sb.append('K');
+            if (rights.indexOf('Q') >= 0 && cb[56] == 4) sb.append('Q');
+        }
+        if (cb[4] == 14) {
+            if (rights.indexOf('k') >= 0 && cb[7] == 12) sb.append('k');
+            if (rights.indexOf('q') >= 0 && cb[0] == 12) sb.append('q');
+        }
+        return sb.length() == 0 ? "-" : sb.toString();
+    }
+
+    /** Parses a FEN (first four fields; the clocks are ignored).  Does not repair anything. */
+    public static Pos fromFen(String fen) {
+        if (fen == null) return null;
+        String[] t = fen.trim().split("\\s+");
+        if (t.length < 2) return null;
+        Pos p = new Pos();
+        int r = 0, f = 0;
+        for (char c : t[0].toCharArray()) {
+            if (c == '/') { r++; f = 0; }
+            else if (c >= '1' && c <= '8') f += c - '0';
+            else {
+                int code = Board.fromChar(c);
+                if (code == 0 || r > 7 || f > 7) return null;
+                p.cb[r * 8 + f] = code;
+                f++;
+            }
+        }
+        p.side = t[1].equals("b") ? BLACK : WHITE;
+        p.castling = t.length > 2 ? t[2] : "-";
+        p.epSq = t.length > 3 ? sqFromName(t[3].equals("-") ? null : t[3]) : -1;
+        return p;
+    }
 
     public static Board toBoard(Pos p, boolean whiteBottom) {
         Board b = new Board();
@@ -210,6 +264,41 @@ public class Chess {
     public static List<Move> legal(Pos p) {
         List<Move> out = new ArrayList<>(48);
         for (Move m : pseudo(p)) {
+            Pos q = p.copy();
+            make(q, m);
+            int k = q.king(p.side == WHITE);
+            if (k < 0 || !attacked(q.cb, k, 3 - p.side)) out.add(m);
+        }
+        return out;
+    }
+
+    /** pseudo-legal moves (the king may be left in check); callers must test {@link #kingSafe} */
+    public static List<Move> pseudoMoves(Pos p) { return pseudo(p); }
+
+    /** after the move was made on q: is the mover's king safe? */
+    public static boolean kingSafe(Pos q, int moverSide) {
+        int k = q.king(moverSide == WHITE);
+        return k < 0 || !attacked(q.cb, k, 3 - moverSide);
+    }
+
+    /** bit mask (bit = chess-order square) of the squares whose colour picture a move can change */
+    public static long touchedMask(Pos p, Move m) {
+        long t = (1L << m.from) | (1L << m.to);
+        if (m.ep) t |= 1L << (p.side == WHITE ? m.to + 8 : m.to - 8);
+        if (m.castle) {
+            if (m.to == 62) t |= (1L << 61) | (1L << 63);
+            else if (m.to == 58) t |= (1L << 59) | (1L << 56);
+            else if (m.to == 6) t |= (1L << 5) | (1L << 7);
+            else if (m.to == 2) t |= (1L << 3) | (1L << 0);
+        }
+        return t;
+    }
+
+    /** legal moves that touch EVERY square in `need` (cheap: the king-safety test runs only for those) */
+    public static List<Move> legalCovering(Pos p, long need) {
+        List<Move> out = new ArrayList<>(8);
+        for (Move m : pseudo(p)) {
+            if ((need & ~touchedMask(p, m)) != 0) continue;
             Pos q = p.copy();
             make(q, m);
             int k = q.king(p.side == WHITE);

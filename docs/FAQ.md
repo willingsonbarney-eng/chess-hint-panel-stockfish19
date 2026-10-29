@@ -8,11 +8,12 @@ API and finds the board like a human eye would. Any theme, any app, online or of
 No. The bottom half of the board is treated as *you*; the engine is asked only for your
 side's move. While it is the enemy's turn the panel shows "Waiting for the enemy…".
 
-**Why does it ask me to fix the pieces the first time?**
-The screen reader can see *that* a square has a piece and *which colour* it is, but not
-reliably whether it is a bishop or a pawn. So the panel starts from a known position and
-then follows every move exactly — piece types then never drift. If you join a game in the
-middle, set the pieces once with FIX POSITION.
+**Why does it sometimes ask me to fix the pieces?**
+The screen reader can see *that* a square has a piece and *which colour* it is, but not reliably whether it
+is a bishop or a pawn. So the panel starts from a known position and then follows every move exactly - a change
+is accepted only if it is a legal move. If it cannot decide (for example several moves were missed at once and
+more than one explanation fits) it does **not** guess; it tells you, and you set the pieces once with FIX PIECES.
+If you join a game in the middle, set the pieces once as well.
 
 **Is 8000 Elo possible?**
 No engine on earth reaches 8000. The strongest measured engines are ~3600 and Stockfish at
@@ -20,7 +21,7 @@ full strength is exactly that. The panel gives you MAX (superhuman) and lets you
 if you want a fair game.
 
 **Does it need internet?**
-No. The app has no internet permission at all. The engine is inside the APK.
+No. The app has no internet permission at all. The engine (Stockfish 19) is inside the APK.
 
 **Battery?**
 Auto mode captures a frame once a second and only thinks when it is your turn. Turn Auto off
@@ -33,3 +34,7 @@ use it responsibly.
 
 **Where is the crash log?**
 App → DIAGNOSTICS → *Copy*.
+
+**Which engine is it, and what licence?**
+Official Stockfish 19 (GPLv3), see `docs/ENGINE.md`. The licence text and a written source offer are inside the APK
+and in `docs/SOURCE-OFFER.txt`.

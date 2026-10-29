@@ -61,17 +61,20 @@ LIBS="$ROOT/build/jnilibs"
 VER="${VERSION_NAME:-2.3}"
 STAGE="$OUT/stage"
 [ -f "$OUT/dex/classes.dex" ] || { echo "run tools/build-apk.sh first"; exit 1; }
-[ -f "$LIBS/libstockfish.so.arm64-v8a" ] || { echo "run tools/build-stockfish-android.sh first"; exit 1; }
-rm -rf "$STAGE"; mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/lib/armeabi-v7a" "$STAGE/lib/x86_64"
+[ -f "$LIBS/arm64-v8a/libstockfish.so" ] || { echo "run tools/build-stockfish-android.sh first"; exit 1; }
+[ -f "$LIBS/engine-build-info.txt" ] || { echo "engine-build-info.txt missing - run tools/build-stockfish-android.sh"; exit 1; }
+rm -rf "$STAGE"; mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/assets"
 cp "$OUT/dex/classes.dex" "$STAGE/"
-cp "$LIBS/libstockfish.so.arm64-v8a"   "$STAGE/lib/arm64-v8a/libstockfish.so"
-cp "$LIBS/libstockfish.so.armeabi-v7a" "$STAGE/lib/armeabi-v7a/libstockfish.so"
-cp "$LIBS/libstockfish.so.x86_64"      "$STAGE/lib/x86_64/libstockfish.so"
+cp "$LIBS/arm64-v8a/libstockfish.so" "$STAGE/lib/arm64-v8a/libstockfish.so"
 chmod 755 "$STAGE"/lib/*/libstockfish.so
+# engine identity, licence and source offer travel inside the APK
+cp "$LIBS/engine-build-info.txt" "$LIBS/LICENSE-STOCKFISH-GPLv3.txt" "$LIBS/STOCKFISH-AUTHORS.txt" "$STAGE/assets/"
+cp "$ROOT/docs/SOURCE-OFFER.txt" "$STAGE/assets/SOURCE-OFFER.txt"
 
 rm -f "$OUT/unsigned.apk" "$OUT/aligned.apk" "$OUT/ChessHintPanel-v$VER.apk"
 cp "$OUT/base.apk" "$OUT/unsigned.apk"
-( cd "$STAGE" && zip -q -r -X "$OUT/unsigned.apk" classes.dex lib )
+( cd "$STAGE" && zip -q -X "$OUT/unsigned.apk" classes.dex assets/* \
+    && zip -q -0 -X "$OUT/unsigned.apk" lib/arm64-v8a/libstockfish.so )
 "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 
 if [ ! -f "$KS" ]; then

@@ -1,15 +1,25 @@
 # Changelog
 
-## v2.3 — repair source update (APK not built in this environment)
+## v2.3 - repair release (current)
+**Fixes "piece identities change by themselves" and upgrades the engine to Stockfish 19.**
+Root-cause analysis: `docs/ROOT-CAUSE.md`. Test status: `docs/TESTING.md`.
 
-* Fixed the recognition handoff that could replace a trusted position with fresh per-frame silhouette guesses after a tracker mismatch.
-* Added persistent position reconciliation, confidence-aware rejection/correction, special-move coverage, ambiguous-path rejection, and bounded-search safety.
-* Removed live-engine fallback paths that could send guessed/uncertain FENs to Stockfish; engine analysis now pauses when the trusted state is uncertain.
-* Replaced the old Stockfish 11 UCI/JNI interface with a Stockfish 19 (`sf_19`) source-build path, version/handshake checks, serialized UCI search handling, and improved native shutdown/restart lifecycle handling.
-* Removed automatic sanitization from FEN serialization and legal move application; added strict engine-position preflight and FEN metadata preservation so invalid turn/check/castling/en-passant state is rejected instead of changing piece identities. The visual editor clears unknown castling rights; use explicit FEN to preserve full move-state metadata.
-* Added tracker, chess-core, and synthetic vision regression tests; documented the exact SDK/network blockers preventing a verified APK build here.
+* **Position tracking rewritten (`Track`, `Chess`, `OverlayService`).** The position changes only through a legal move
+  or the user. Frames are debounced, uncertain squares are wildcards, ambiguous or impossible changes are reported
+  (`AMBIGUOUS` / `UNEXPLAINED` / `LOST`) instead of guessed, castling / en passant / promotion handled, orientation is
+  part of the tracked state, take-back and new game recognised. Silhouette piece-type guessing no longer touches the position.
+* **Board, side to move, FEN, history and analysis are synchronised** through one tracker snapshot with a version number.
+* **Screen reader confidence recalibrated (`Vision.computeConfidence`).** Highlights / noise give low confidence, not wrong certainty.
+* **Engine layer rewritten (`UciEngine`, `native/jni_bridge.cpp`).** Stockfish 19 (official `sf_19`, ARM64, NNUE embedded,
+  built with NDK r27c+); validated FEN; no stale or mixed `bestmove`; cancel / restart / shutdown; sensible Threads / Hash defaults.
+* **Packaging:** `extractNativeLibs="false"` (library stored uncompressed, 16 KB page aligned), only the arm64-v8a ABI,
+  engine build info + GPLv3 licence + AUTHORS + source offer inside the APK, `tools/check-apk.sh`.
+* **Tests:** `TrackerTest` (117), `CoreTest` (15), `VisionTest` (57), `EngineTest`; `tools/run-host-tests.sh`; CI runs them with the real Stockfish 19.
+* **Not changed:** screen capture and permissions, board selection, overlay and controls, settings.
+* **Known limits:** documented in `docs/ROOT-CAUSE.md`. The APK size is about 100 MB (network inside the engine).
+  Android 15 device behaviour has not been verified by the author of this repair (no device was available).
 
-## v1.9 — current
+## v1.9
 **Fixed `libstockfish.so` `dlopen` symbol error (`engine: not running`) & false board detection on home screen**
 
 * **Fixed `dlopen failed: cannot locate symbol "__android_log_print"` in `libstockfish.so`**:

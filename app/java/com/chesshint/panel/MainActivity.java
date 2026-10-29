@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
 
         // ---- compact top navigation bar (no application name, zero wasted space)
         LinearLayout bar = Ui.row(this);
-        TextView engineBadge = Ui.text(this, "\u265E  Stockfish 19  •  v2.3", 12f, Ui.TEXT_DIM, true);
+        TextView engineBadge = Ui.text(this, "\u265E  Stockfish 11  •  v2.2", 12f, Ui.TEXT_DIM, true);
         engineBadge.setBackground(Ui.round(Ui.CHIP, Ui.CARD_BORDER, this, 10));
         engineBadge.setPadding(Ui.dp(this, 10), Ui.dp(this, 6), Ui.dp(this, 10), Ui.dp(this, 6));
         bar.addView(engineBadge);
@@ -402,7 +402,7 @@ public class MainActivity extends Activity {
     private void shareLog() {
         try {
             StringBuilder sb = new StringBuilder();
-            sb.append("v2.3\n");
+            sb.append("v2.2\n");
             sb.append("android ").append(android.os.Build.VERSION.RELEASE)
               .append(" (api ").append(android.os.Build.VERSION.SDK_INT).append(")\n");
             sb.append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append("\n\n");

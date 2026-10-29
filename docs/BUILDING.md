@@ -1,58 +1,49 @@
-# Building ChessHintPanel
+# Building
 
 ## Requirements
+* JDK 17
+* Android SDK: build-tools 34.0.0 + `platforms;android-34`
+* Android NDK **r27c (27.2.12479018) or newer** - only to build the engine (Stockfish 19's own requirement for Android)
+* Python 3 + Pillow, g++ (only for the desktop tests)
+* Network access to github.com (Stockfish source + its NNUE network) while building the engine
 
-- JDK 17 or newer
-- Android SDK with `platforms;android-34` and build-tools `34.0.0`
-- Android NDK r27c or newer for the native engine build
-- `curl`, `tar`, and `sha256sum` for fetching upstream source and the exact Stockfish NNUE network
-- Python 3 and Pillow for the synthetic screenshot tests
-- Network access for the first Stockfish source/network fetch; the built app itself runs analysis locally/offline
-
-## 1. Build the bundled Stockfish 19 engine
-
-Stockfish 19 is pinned to the official `sf_19` source tag. The script downloads the official source archive, calls the upstream network helper (including its SHA-256 validation), compiles the engine into a JNI shared library, and embeds the NNUE network at build time.
-
+## 1. Engine (Stockfish 19, ARM64)
 ```bash
 export ANDROID_NDK_HOME=/path/to/android-ndk-r27c
-# Optional if you do not want the work/source cache under this checkout:
-# export SF_WORK_DIR=/path/to/build-cache/stockfish
-bash tools/build-stockfish-android.sh
+tools/build-stockfish-android.sh      # fetches official sf_19, verifies the commit and the network hash
 ```
+Output: `build/jnilibs/arm64-v8a/libstockfish.so` and `build/jnilibs/engine-build-info.txt`.
+Optional: `SF_ARCH=armv8-dotprod` for CPUs with ARMv8.2 dot-product (faster, but crashes on CPUs without it).
+See `docs/ENGINE.md`.
 
-The script builds `arm64-v8a` (the primary target for a 64-bit Realme 11 4G), plus `armeabi-v7a` and `x86_64` for existing supported device/emulator configurations. Output: `build/jnilibs/libstockfish.so.<abi>`.
-
-## 2. Build and package the APK
-
+## 2. App
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
-export ANDROID_BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
-export ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar"
-bash tools/build-apk.sh
-bash tools/package-apk.sh
+export ANDROID_BUILD_TOOLS=$ANDROID_HOME/build-tools/34.0.0
+export ANDROID_JAR=$ANDROID_HOME/platforms/android-34/android.jar
+tools/build-apk.sh       # aapt2 + javac + d8
+tools/package-apk.sh     # adds the engine, licence + source offer, aligns, signs (creates a keystore on first run)
+tools/check-apk.sh build/out/ChessHintPanel-v2.3.apk
 ```
+Output: `build/out/ChessHintPanel-v2.3.apk` (about 100 MB: the Stockfish 19 network is inside the engine library).
+The first run creates a signing key in `~/.signing/`. Keep it: only APKs signed with the same key can be installed
+over each other.
 
-The package step copies the matching ABI library into the APK, aligns it, and signs it (creates a local debug/test keystore when needed). Output: `build/out/ChessHintPanel-<version>.apk`.
-
-## 3. Desktop regression tests
-
+## 3. Tests (desktop JVM)
 ```bash
-bash tools/test-desktop.sh
+tools/run-host-tests.sh                    # tracker, move generator, screen reader, REAL Stockfish 19 engine tests
+SF_VERSION=11 tools/run-host-tests.sh      # bridge test against the legacy Stockfish 11 (no network file needed)
+NO_NET=1 tools/run-host-tests.sh           # Stockfish 19 without network: handshake only
 ```
+See `docs/TESTING.md` for what these results do and do not prove.
 
-The desktop suite runs the pure-Java chess move generator/tracker tests and the synthetic screenshot detector tests. It does **not** validate Android screen-capture permissions, the floating overlay, hardware-specific ARM behavior, or Stockfish UCI unless a host engine is available and `RUN_STOCKFISH_INTEGRATION=1` is set.
+## CI
+`.github/workflows/build.yml` runs the desktop tests (real Stockfish 19), builds the ARM64 engine and the APK,
+runs `tools/check-apk.sh`, and uploads the APK + reports as workflow artifacts on every push / pull request.
+`.github/workflows/build-apk.yml` does the same for version tags and attaches the APK to a GitHub release.
+To keep one signing identity across releases, set the secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASS`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASS`.
 
-For the native UCI integration test (requires the same official Stockfish source, network, and host compiler):
-
-```bash
-bash tools/build-stockfish-host.sh
-RUN_STOCKFISH_INTEGRATION=1 bash tools/test-desktop.sh
-```
-
-## 4. Physical-device verification
-
-Install `build/out/ChessHintPanel-<version>.apk` on an Android 15 test device, grant display-over-other-apps and screen-capture permissions, confirm board selection/orientation, and run the engine version/UCI status from the in-app diagnostic/log UI. A desktop test is not a substitute for this physical-device test.
-
-## Reproducibility and license
-
-The exact Stockfish source tag, network embedding process, ABI flags, and GPLv3/source-distribution notes are in [`STOCKFISH.md`](../STOCKFISH.md). A build requires downloading the official, hash-validated NNUE network. The app does not need network access after a successful build because the network is compiled into `libstockfish.so`.
+### No Android SDK/NDK on your machine?
+Fork/push the project to GitHub, open **Actions → Test and build APK → Run workflow**, and download the
+`ChessHintPanel-apk` artifact when it finishes.

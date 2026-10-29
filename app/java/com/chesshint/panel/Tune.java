@@ -11,8 +11,8 @@ public class Tune {
         try {
             long maxHeap = Runtime.getRuntime().maxMemory() / (1024 * 1024);
             EngineBudget.heapMb = (int) maxHeap;
-            EngineBudget.hashMb = maxHeap < 192 ? 8 : (maxHeap < 384 ? 16 : 32);
-            EngineBudget.threads = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
+            EngineBudget.hashMb = maxHeap < 192 ? 16 : (maxHeap < 384 ? 32 : 64);
+            EngineBudget.threads = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors() / 2));  // big.LITTLE: leave the little cores alone
         } catch (Throwable ignored) { }
     }
 

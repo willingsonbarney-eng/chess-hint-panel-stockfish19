@@ -1,0 +1,36 @@
+Chess Hint Panel - written offer of source code for the bundled chess engine
+============================================================================
+
+This app contains the chess engine STOCKFISH 19, which is free software licensed under the
+GNU General Public License, version 3 (GPLv3).  The full licence text is in the file
+LICENSE-STOCKFISH-GPLv3.txt inside this app (assets/) and at https://www.gnu.org/licenses/gpl-3.0.html
+
+You are entitled to the complete corresponding source code of the engine library that is inside
+this APK (lib/arm64-v8a/libstockfish.so).  It consists of exactly these parts:
+
+  1. Stockfish 19, unmodified, official release tag  sf_19
+       repository: https://github.com/official-stockfish/Stockfish
+       commit:     edb0d9db6731067ec50ce619ff372b463bc4dd5d
+       (the build script refuses to compile any other commit)
+
+  2. The NNUE evaluation network that Stockfish 19 embeds in the library.  Its exact file name and
+     SHA-256 are printed in assets/engine-build-info.txt.  The network is downloaded by Stockfish's
+     own script (src/../scripts/net.sh) from the official Stockfish network storage; the file name
+     is derived from the first 12 hex digits of the file's SHA-256 and the build verifies it.
+
+  3. The small bridge that links the engine into the Android app:   native/jni_bridge.cpp
+
+  4. The exact build recipe (compiler flags, architecture, linker flags):
+       tools/stockfish-common.sh   tools/build-stockfish-android.sh
+     The compiler version, NDK version and flags actually used are recorded in
+     assets/engine-build-info.txt.
+
+Items 3 and 4 are part of the Chess Hint Panel source tree (the ZIP / repository this APK was built from).
+To rebuild the engine library yourself, see docs/ENGINE.md and docs/BUILDING.md.
+
+If you received this APK without the source tree, write to the person or organisation that gave it to you
+and ask for it; they must supply it.  This offer is valid for as long as the APK is distributed, and in any
+case for at least three years after the last distribution, as required by GPLv3 section 6.
+
+The rest of the app (everything that is not Stockfish) is licensed under the MIT licence, see LICENSE.
+Stockfish is a trademark of the Stockfish developers; this app is not affiliated with or endorsed by them.

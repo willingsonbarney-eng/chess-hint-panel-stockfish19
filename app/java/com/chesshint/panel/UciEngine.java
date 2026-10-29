@@ -1,20 +1,36 @@
 package com.chesshint.panel;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Local Stockfish 19 UCI engine hosted inside libstockfish.so.
+ * Stockfish, compiled into libstockfish.so and loaded with System.loadLibrary().
+ * The native side runs the official UCI loop on its own thread and forwards every
+ * output line to onEngineLine(); commands go in with nativeWrite().
  *
- * A single command/search stream is serialized so a delayed bestmove from an older position
- * cannot be returned as the answer to a newer FEN. The JNI engine and UCI pump are separate
- * threads; cancellation does not block behind the synchronous bestMove call.
+ * Guarantees of this class (all covered by tools/tests/EngineTest.java):
+ *  - at most ONE search is outstanding.  A new analysis first stops the previous one and waits for
+ *    its "bestmove", so a late answer of an old search can never be mistaken for the new one;
+ *  - every {@link Result} carries the FEN (and the caller's tag, e.g. the tracker version) it was
+ *    computed for; its "info" numbers come from that search only;
+ *  - the FEN is validated before it is sent and the returned move is checked against our own legal
+ *    move generator - an illegal answer is reported as an error, never as a move;
+ *  - cancel() stops the running search, shutdown()/restart() really end the engine thread.
+ *
+ * No Android dependencies on purpose: the identical code is tested on a PC.
  */
 public class UciEngine {
 
     private static UciEngine INSTANCE;
     private static boolean libOk;
     private static String libError = "";
+    private static String libName = "";
 
     public static synchronized UciEngine getInstance() {
         if (INSTANCE == null) INSTANCE = new UciEngine();
@@ -23,330 +39,426 @@ public class UciEngine {
 
     private native void nativeInit();
     private native void nativeWrite(String cmd);
-    private native boolean nativeIsRunning();
+    private native boolean nativeShutdown(int timeoutMs);
+
+    // ------------------------------------------------------------------ result of one analysis
+
+    public static final class Result {
+        /** the position that was analysed (as sent to the engine) */
+        public String fen;
+        /** caller supplied token - lets the caller drop an answer whose position is no longer current */
+        public long tag;
+        /** engine move in UCI notation (e2e4, e7e8q) - only set when it is legal in {@link #fen} */
+        public String bestmove;
+        public String ponder;
+        public int depth;
+        public int cp;
+        public int mate;
+        public String pv = "";
+        public long searchId;
+        public long millis;
+        /** true when cancel() / a newer analysis ended this search early: do not show it */
+        public boolean cancelled;
+        /** null when everything is fine */
+        public String error;
+
+        public boolean ok() { return error == null && !cancelled && bestmove != null; }
+    }
+
+    private static final class Search {
+        final long id;
+        final String fen;
+        final CountDownLatch done = new CountDownLatch(1);
+        volatile String bestLine;
+        volatile int depth, cp, mate;
+        volatile String pv = "";
+        volatile boolean cancelled;
+        Search(long id, String fen) { this.id = id; this.fen = fen; }
+    }
+
+    // ------------------------------------------------------------------ state
 
     private final ArrayBlockingQueue<String> raw = new ArrayBlockingQueue<>(4096);
-    private final ArrayBlockingQueue<String> best = new ArrayBlockingQueue<>(8);
-    private final ArrayBlockingQueue<String> hand = new ArrayBlockingQueue<>(16);
+    private final LinkedBlockingQueue<String> hand = new LinkedBlockingQueue<>();
     private final ArrayBlockingQueue<String> echo = new ArrayBlockingQueue<>(512);
+    private final Object cmdLock = new Object();
+    private final AtomicLong seq = new AtomicLong();
 
     private Thread pump;
     private volatile boolean alive;
-    private volatile boolean thinking;
-    private volatile boolean searchOutstanding;
-    private volatile boolean cancelRequested;
+    private volatile Search active;
+    private volatile String engineName = "";
+    private volatile int eloMin = 1320, eloMax = 3190;
+    private volatile boolean sawElo;
+    private volatile int strayBestmoves;
+    private int restarts;
 
+    /** last finished search (convenience for diagnostics only - use Result for decisions) */
     public volatile int depth;
     public volatile int scoreCp;
     public volatile int mateIn;
-    public volatile String lastName = "";
-    public volatile String engineName = "";
-    public volatile String engineVersion = "";
-    /** The FEN attached to the last bestmove actually returned to the caller. */
-    public volatile String lastAnalyzedFen = "";
+
+    private int hashMb = 32;
+    private int threadsWanted = 0;
+
+    // ------------------------------------------------------------------ library
 
     public static synchronized boolean loadLibrary() {
         if (libOk) return true;
-        try {
-            System.loadLibrary("stockfish");
-            libOk = true;
-            libError = "";
-        } catch (Throwable t) {
-            libOk = false;
-            libError = String.valueOf(t.getMessage());
+        String[] order = cpuHasDotProd() ? new String[]{"stockfish_dp", "stockfish"} : new String[]{"stockfish"};
+        for (String n : order) {
+            try {
+                System.loadLibrary(n);
+                libOk = true;
+                libName = n;
+                libError = "";
+                return true;
+            } catch (Throwable t) {
+                libError = String.valueOf(t.getMessage());
+            }
         }
-        return libOk;
+        libOk = false;
+        return false;
+    }
+
+    /** ARMv8.2 dot-product CPUs (Realme 11 4G: Helio G99 with Cortex-A76/A55) get the faster build */
+    static boolean cpuHasDotProd() {
+        try (BufferedReader r = new BufferedReader(new FileReader("/proc/cpuinfo"))) {
+            String l;
+            while ((l = r.readLine()) != null) {
+                if (l.startsWith("Features") && (" " + l + " ").contains(" asimddp ")) return true;
+            }
+        } catch (Throwable ignored) { }
+        return false;
     }
 
     public static String libraryError() { return libError; }
+    /** which native library variant is loaded ("stockfish" or "stockfish_dp") */
+    public static String libraryName() { return libName; }
 
-    /** Called by the native engine thread for every UCI output line. Must never block it. */
+    // ------------------------------------------------------------------ engine output
+
+    /** called from the engine threads inside libstockfish.so */
     public void onEngineLine(String line) {
         if (line == null) return;
-        if (!raw.offer(line)) {
+        if (!raw.offer(line)) {          // never block the engine thread
             raw.poll();
             raw.offer(line);
         }
     }
 
-    public boolean isAlive() { return alive && safeNativeRunning(); }
+    public boolean isAlive() { return alive; }
+    /** e.g. "Stockfish 19" - whatever the engine says in "id name" */
+    public String engineName() { return engineName; }
+
+    /** test helpers: raw engine console access */
     public void clearRaw() { raw.clear(); echo.clear(); }
     public String pollRaw(long ms) throws InterruptedException { return echo.poll(ms, TimeUnit.MILLISECONDS); }
-    public boolean isThinking() { return thinking; }
+    public boolean isThinking() { return active != null; }
+    /** bestmove lines that arrived while no search was waiting for them (must stay 0) */
+    public int strayBestmoves() { return strayBestmoves; }
+    public int restartCount() { return restarts; }
 
-    private int hashMb = 16;
-    private int threadsWanted = 0;
-
-    /** Mobile budget. Stockfish caps Hash to 64 MiB and defaults to at most two worker threads. */
+    /** memory / thread budget, decided once at start-up by Tune */
     public void setBudget(int hashMb, int threads) {
-        this.hashMb = Math.max(8, Math.min(64, hashMb));
-        this.threadsWanted = Math.max(0, Math.min(2, threads));
+        this.hashMb = Math.max(8, Math.min(256, hashMb));
+        this.threadsWanted = Math.max(0, threads);
     }
+
+    // ------------------------------------------------------------------ life cycle
 
     public synchronized boolean start() {
-        if (alive && safeNativeRunning()) return true;
-        // Retire a stale pump before creating another one. A native engine can terminate
-        // unexpectedly while its Java pump still has alive=true; starting a second pump
-        // would let both threads consume the same output queue and corrupt UCI ordering.
-        if (alive || (pump != null && pump.isAlive())) {
-            alive = false;
-            if (pump != null && pump != Thread.currentThread()) {
-                pump.interrupt();
-                try { pump.join(1000); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
-                if (pump.isAlive()) {
-                    libError = "Previous Stockfish output thread did not stop cleanly";
-                    return false;
-                }
-            }
-            pump = null;
-        }
-        // A failed startup may have timed out while the native UCI thread was still unwinding.
-        // Never initialize over a live native instance or share its command/output queues.
-        long nativeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (safeNativeRunning() && System.nanoTime() < nativeDeadline) {
-            try { Thread.sleep(20); }
-            catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
-        }
-        if (safeNativeRunning()) {
-            libError = "Previous Stockfish native thread is still running; restart refused";
+        synchronized (cmdLock) { return startLocked(); }
+    }
+
+    private boolean startLocked() {
+        if (alive) return true;
+        if (!loadLibrary()) return false;
+        try {
+            raw.clear(); echo.clear(); hand.clear();
+            active = null;
+            nativeInit();
+        } catch (Throwable t) {
+            libError = String.valueOf(t.getMessage());
             return false;
         }
-        alive = false;
-        if (!loadLibrary()) return false;
-        raw.clear();
-        best.clear();
-        hand.clear();
-        echo.clear();
-        engineName = "";
-        engineVersion = "";
-        lastAnalyzedFen = "";
+        alive = true;
+        pump = new Thread(this::pumpLoop, "uci-pump");
+        pump.setDaemon(true);
+        pump.start();
         try {
-            nativeInit();
-            // Set the flag before starting the pump; otherwise the first scheduler slice could
-            // see alive=false and make the reader exit before UCI's uciok arrives.
-            alive = true;
-            pump = new Thread(this::pumpLoop, "stockfish-uci-pump");
-            pump.setDaemon(true);
-            pump.start();
-
-            nativeWrite("uci");
-            if (!awaitHand("uciok", 12000)) return failStartup("Stockfish did not answer uciok");
-            if (!engineName.toLowerCase().contains("stockfish 19")) {
-                return failStartup("Expected Stockfish 19 but got: " + engineName);
-            }
-
+            send("uci");
+            if (!waitHand("uciok", 8000)) { killLocked(); libError = "engine did not answer 'uci'"; return false; }
             int threads = threadsWanted > 0 ? threadsWanted
-                    : Math.max(1, Math.min(2, Runtime.getRuntime().availableProcessors()));
-            nativeWrite("setoption name Threads value " + threads);
-            nativeWrite("setoption name Hash value " + hashMb);
-            nativeWrite("setoption name Skill Level value 20");
-            nativeWrite("setoption name Ponder value false");
-            nativeWrite("isready");
-            if (!awaitHand("readyok", 12000)) return failStartup("Stockfish did not answer readyok");
+                    : Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors() / 2));
+            send("setoption name Threads value " + threads);
+            send("setoption name Hash value " + hashMb);
+            send("setoption name Ponder value false");
+            send("setoption name UCI_LimitStrength value false");
+            if (!ready(10000)) { killLocked(); libError = "engine did not become ready"; return false; }
             return true;
         } catch (Throwable t) {
-            libError = "Stockfish startup failed: " + t.getClass().getSimpleName() + ": " + t.getMessage();
-            abortNativeStartup();
+            killLocked();
+            libError = String.valueOf(t.getMessage());
             return false;
         }
     }
 
-    private boolean failStartup(String message) {
-        libError = message;
-        abortNativeStartup();
-        return false;
-    }
-
-    private void abortNativeStartup() {
-        try { nativeWrite("quit"); } catch (Throwable ignored) { }
-        long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
-        while (safeNativeRunning() && System.nanoTime() < end) {
-            try { Thread.sleep(20); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
-        }
-        alive = false;
-        if (pump != null) pump.interrupt();
-    }
-
-    private boolean safeNativeRunning() {
-        try { return nativeIsRunning(); } catch (Throwable ignored) { return false; }
-    }
-
-    private boolean awaitHand(String expected, long timeoutMs) throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+    /** wait for "token" in the handshake queue */
+    private boolean waitHand(String token, long ms) throws InterruptedException {
+        long end = System.currentTimeMillis() + ms;
         while (true) {
-            long remaining = deadline - System.nanoTime();
-            if (remaining <= 0) return false;
-            String line = hand.poll(remaining, TimeUnit.NANOSECONDS);
-            if (line == null) return false;
-            if (expected.equals(line)) return true;
+            long left = end - System.currentTimeMillis();
+            if (left <= 0) return false;
+            String l = hand.poll(left, TimeUnit.MILLISECONDS);
+            if (l == null) return false;
+            if (l.equals(token)) return true;
         }
+    }
+
+    /** "isready" and wait for exactly one "readyok" */
+    private boolean ready(long ms) throws InterruptedException {
+        hand.clear();
+        send("isready");
+        return waitHand("readyok", ms);
     }
 
     private void pumpLoop() {
         try {
-            while (alive || safeNativeRunning() || !raw.isEmpty()) {
-                String line = raw.poll(250, TimeUnit.MILLISECONDS);
+            while (alive || !raw.isEmpty()) {
+                String line = raw.poll(200, TimeUnit.MILLISECONDS);
                 if (line == null) continue;
                 if (!echo.offer(line)) { echo.poll(); echo.offer(line); }
-
-                if (line.startsWith("id name ")) {
-                    engineName = line.substring("id name ".length()).trim();
-                    int at = engineName.toLowerCase().indexOf("stockfish ");
-                    if (at >= 0) {
-                        int end = at + "stockfish ".length();
-                        int stop = end;
-                        while (stop < engineName.length() && (Character.isDigit(engineName.charAt(stop))
-                                || engineName.charAt(stop) == '.')) stop++;
-                        engineVersion = engineName.substring(end, stop);
-                    }
-                }
                 if (line.startsWith("bestmove")) {
-                    thinking = false;
-                    searchOutstanding = false;
-                    if (!best.offer(line)) { best.poll(); best.offer(line); }
+                    Search s = active;
+                    if (s == null) { strayBestmoves++; continue; }
+                    s.bestLine = line;
+                    active = null;
+                    s.done.countDown();
                 } else if (line.equals("uciok") || line.equals("readyok")) {
-                    if (!hand.offer(line)) { hand.poll(); hand.offer(line); }
-                } else if (line.startsWith("info") && line.contains(" depth ")) {
-                    parseInfo(line);
+                    hand.offer(line);
+                } else if (line.startsWith("id name ")) {
+                    engineName = line.substring(8).trim();
+                } else if (line.startsWith("option name UCI_Elo ")) {
+                    parseEloRange(line);
+                } else if (line.startsWith("info ")) {
+                    Search s = active;
+                    if (s != null && line.contains(" depth ") && line.contains(" score ")) parseInfo(s, line);
                 }
-            }
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
-        } catch (Throwable ignored) {
-            // A closed service should not crash Android due to an output callback error.
-        }
-    }
-
-    private void parseInfo(String line) {
-        try {
-            String[] t = line.split("\\s+");
-            for (int i = 0; i < t.length - 1; i++) {
-                if (t[i].equals("depth")) depth = parseInt(t[i + 1], depth);
-                else if (t[i].equals("cp")) { scoreCp = parseInt(t[i + 1], scoreCp); mateIn = 0; }
-                else if (t[i].equals("mate")) mateIn = parseInt(t[i + 1], 0);
-                else if (t[i].equals("pv") && i + 1 < t.length) lastName = t[i + 1];
             }
         } catch (Throwable ignored) { }
     }
 
-    private static int parseInt(String s, int def) {
-        try { return Integer.parseInt(s); } catch (Exception e) { return def; }
+    private void parseEloRange(String line) {
+        try {
+            String[] t = line.split("\\s+");
+            for (int i = 0; i < t.length - 1; i++) {
+                if (t[i].equals("min")) eloMin = Integer.parseInt(t[i + 1]);
+                else if (t[i].equals("max")) eloMax = Integer.parseInt(t[i + 1]);
+            }
+            sawElo = true;
+        } catch (Throwable ignored) { }
     }
 
+    private static void parseInfo(Search s, String line) {
+        try {
+            String[] t = line.split("\\s+");
+            // only the main line counts
+            for (int i = 0; i < t.length - 1; i++) {
+                if (t[i].equals("multipv") && !t[i + 1].equals("1")) return;
+                if (t[i].equals("string")) return;
+            }
+            int d = s.depth, cp = s.cp, mate = s.mate;
+            String pv = null;
+            for (int i = 0; i < t.length - 1; i++) {
+                if (t[i].equals("depth")) d = Integer.parseInt(t[i + 1]);
+                else if (t[i].equals("cp")) { cp = Integer.parseInt(t[i + 1]); mate = 0; }
+                else if (t[i].equals("mate")) { mate = Integer.parseInt(t[i + 1]); }
+                else if (t[i].equals("pv")) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int k = i + 1; k < t.length; k++) sb.append(k > i + 1 ? " " : "").append(t[k]);
+                    pv = sb.toString();
+                    break;
+                }
+            }
+            s.depth = d; s.cp = cp; s.mate = mate;
+            if (pv != null) s.pv = pv;
+        } catch (Throwable ignored) { }
+    }
+
+    /** raw command (tests, advanced use) */
     public void send(String cmd) {
-        if (!alive || cmd == null) return;
+        if (!alive) return;
         try { nativeWrite(cmd); } catch (Throwable ignored) { }
     }
 
-    /** @param elo -1 = full strength, otherwise UCI_Elo target (1350..2850). */
-    public synchronized String bestMove(String fen, int moveTimeMs, int elo) {
-        if (!alive || fen == null || fen.trim().isEmpty()) return null;
-        cancelRequested = false;
+    /** a new game starts: forget the old search tables */
+    public void newGame() {
+        synchronized (cmdLock) {
+            if (!alive) return;
+            stopActiveLocked();
+            send("ucinewgame");
+            try { ready(5000); } catch (InterruptedException ignored) { }
+        }
+    }
+
+    // ------------------------------------------------------------------ analysis
+
+    /**
+     * Analyse exactly the position given.  Blocks up to moveTimeMs + a few seconds.
+     *
+     * @param tag   caller token copied into the result
+     * @param elo   -1 = full strength, otherwise UCI_Elo target
+     */
+    public Result analyze(String fen, long tag, int moveTimeMs, int elo) {
+        Result r = new Result();
+        r.fen = fen;
+        r.tag = tag;
+        // ---- validate before anything reaches the engine
+        Chess.Pos p;
         try {
-            // If a previous call was cancelled or timed out, consume its bestmove before
-            // clearing queues and assigning a response to this new FEN.
-            if (searchOutstanding) {
-                send("stop");
-                String stale = best.poll(3500, TimeUnit.MILLISECONDS);
-                if (stale == null || !stale.startsWith("bestmove")) {
-                    cancelRequested = true;
-                    return null; // do not issue a new go into an unsynchronized UCI stream
+            p = Chess.fromFen(fen);
+        } catch (Throwable t) {
+            r.error = "bad FEN";
+            return r;
+        }
+        String why = p == null ? "bad FEN" : Chess.validate(p);
+        if (!why.isEmpty()) { r.error = "position not valid: " + why; return r; }
+        List<Chess.Move> legal = Chess.legal(p);
+        if (legal.isEmpty()) { r.error = "no legal move (game over)"; return r; }
+
+        long t0 = System.currentTimeMillis();
+        synchronized (cmdLock) {
+            if (!alive && !startLocked()) { r.error = "engine not running: " + libError; return r; }
+            Search s = null;
+            try {
+                if (!stopActiveLocked()) {
+                    if (!restartLocked()) { r.error = "engine restart failed"; return r; }
                 }
+                // everything sent before this point has been processed when readyok arrives
+                if (!ready(4000)) {
+                    if (!restartLocked() || !ready(4000)) { r.error = "engine not responding"; return r; }
+                }
+                if (elo > 0) {
+                    send("setoption name UCI_LimitStrength value true");
+                    send("setoption name UCI_Elo value " + Math.max(eloMin, Math.min(eloMax, elo)));
+                } else {
+                    send("setoption name UCI_LimitStrength value false");
+                }
+                s = new Search(seq.incrementAndGet(), fen);
+                r.searchId = s.id;
+                send("position fen " + fen);
+                active = s;                         // must be set before "go": the answer can be instant
+                send("go movetime " + Math.max(50, moveTimeMs));
+                boolean got = s.done.await(Math.max(50, moveTimeMs) + 8000L, TimeUnit.MILLISECONDS);
+                if (!got) {
+                    active = null;
+                    r.error = "engine did not answer";
+                    restartLocked();
+                    return r;
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                r.error = "interrupted";
+                if (s != null) { s.cancelled = true; stopActiveLocked(); }
+                return r;
             }
-
-            best.clear();
-            hand.clear();
-            send("isready");
-            if (!awaitHand("readyok", 4000)) return null;
-
-            if (elo > 0) {
-                send("setoption name UCI_LimitStrength value true");
-                send("setoption name UCI_Elo value " + Math.max(1350, Math.min(2850, elo)));
-            } else {
-                send("setoption name UCI_LimitStrength value false");
+            r.depth = s.depth; r.cp = s.cp; r.mate = s.mate; r.pv = s.pv;
+            r.cancelled = s.cancelled;
+            r.millis = System.currentTimeMillis() - t0;
+            depth = s.depth; scoreCp = s.cp; mateIn = s.mate;
+            String mv = moveOf(s.bestLine);
+            String[] bl = s.bestLine == null ? new String[0] : s.bestLine.trim().split("\\s+");
+            if (bl.length >= 4 && bl[2].equals("ponder")) r.ponder = bl[3];
+            if (mv == null) {
+                if (!r.cancelled) r.error = "engine returned no move";
+                return r;
             }
-            send("isready");
-            if (!awaitHand("readyok", 4000)) return null;
-
-            depth = 0;
-            scoreCp = 0;
-            mateIn = 0;
-            lastName = "";
-            searchOutstanding = true;
-            thinking = true;
-            send("position fen " + fen.trim());
-            int budget = Math.max(100, Math.min(10000, moveTimeMs));
-            send("go movetime " + budget);
-            String line = best.poll(budget + 8000L, TimeUnit.MILLISECONDS);
-            if (line == null || !line.startsWith("bestmove")) {
-                cancelRequested = true;
-                send("stop");
-                String stopped = best.poll(3500, TimeUnit.MILLISECONDS);
-                if (stopped == null || !stopped.startsWith("bestmove")) return null;
-                return null;
+            boolean isLegal = false;
+            for (Chess.Move m : legal) if (m.uci().equals(mv)) { isLegal = true; break; }
+            if (!isLegal) {
+                r.error = "engine move " + mv + " is not legal in the analysed position";
+                return r;
             }
-            if (cancelRequested) return null;
-            lastAnalyzedFen = fen.trim();
-            return line;
+            r.bestmove = mv;
+            return r;
+        }
+    }
+
+    /** stop the search in progress (if any); the pending analyze() returns a cancelled Result */
+    public void cancel() {
+        Search s = active;
+        if (s != null) {
+            s.cancelled = true;
+            send("stop");
+        }
+    }
+
+    /** make sure no search is running: stop it and wait for its "bestmove".  false = it never ended */
+    private boolean stopActiveLocked() {
+        Search s = active;
+        if (s == null) return true;
+        s.cancelled = true;
+        send("stop");
+        try {
+            return s.done.await(3000, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            cancelRequested = true;
-            send("stop");
-            return null;
-        } catch (Throwable t) {
-            cancelRequested = true;
-            send("stop");
-            return null;
-        } finally {
-            // `searchOutstanding` is cleared by the pump only after a bestmove arrives.
-            if (!searchOutstanding) thinking = false;
+            return false;
         }
+    }
+
+    // ------------------------------------------------------------------ stop / restart
+
+    /** stop the running search; the engine stays alive */
+    public synchronized void stop() {
+        cancel();
+    }
+
+    /** end the engine thread (quit + join).  start() brings it back */
+    public void shutdown() {
+        synchronized (cmdLock) {
+            killLocked();
+        }
+    }
+
+    public boolean restart() {
+        synchronized (cmdLock) { return restartLocked(); }
+    }
+
+    private boolean restartLocked() {
+        restarts++;
+        killLocked();
+        return startLocked();
+    }
+
+    private void killLocked() {
+        Search s = active;
+        if (s != null) { s.cancelled = true; }
+        boolean wasAlive = alive;
+        if (wasAlive) {
+            try { nativeWrite("stop"); } catch (Throwable ignored) { }
+            try { nativeShutdown(4000); } catch (Throwable ignored) { }
+        }
+        alive = false;
+        active = null;
+        if (s != null) s.done.countDown();
+        Thread p = pump;
+        if (p != null) {
+            try { p.join(1000); } catch (InterruptedException ignored) { }
+            pump = null;
+        }
+        raw.clear();
+        hand.clear();
     }
 
     public static String moveOf(String bestLine) {
         if (bestLine == null) return null;
         String[] t = bestLine.trim().split("\\s+");
         if (t.length >= 2 && t[0].equals("bestmove")) {
-            if (t[1].equals("(none)")) return null;
+            if (t[1].equals("(none)") || t[1].equals("0000")) return null;
             return t[1];
         }
         return null;
-    }
-
-    /** Non-blocking search cancellation; does not wait for bestMove's synchronized lock. */
-    public void stop() {
-        cancelRequested = true;
-        if (alive && searchOutstanding) {
-            try { nativeWrite("stop"); } catch (Throwable ignored) { }
-        }
-    }
-
-    /** Gracefully stop and join the native UCI loop. Safe to call more than once. */
-    public void shutdown() {
-        cancelRequested = true;
-        if (safeNativeRunning()) {
-            try {
-                if (searchOutstanding) nativeWrite("stop");
-                nativeWrite("quit");
-            } catch (Throwable ignored) { }
-            long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-            while (safeNativeRunning() && System.nanoTime() < end) {
-                try { Thread.sleep(20); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
-            }
-        }
-        if (!safeNativeRunning()) {
-            alive = false;
-            if (pump != null && pump != Thread.currentThread()) {
-                pump.interrupt();
-                try { pump.join(600); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            }
-            thinking = false;
-            searchOutstanding = false;
-            best.clear();
-            hand.clear();
-            raw.clear();
-        }
     }
 }

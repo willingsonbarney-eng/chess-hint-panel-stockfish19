@@ -1,50 +1,80 @@
-name: Build APK
+name: Test and build APK
+
+# 1. desktop tests (tracker, move generator, screen reader, REAL Stockfish 19 through the same JNI bridge)
+# 2. native Stockfish 19 for ARM64 + APK + content checks
+# Nothing here runs on a phone: see docs/TESTING.md for what each kind of result does and does not prove.
 
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
 
+env:
+  NDK_VERSION: 27.2.12479018      # NDK r27c, the oldest NDK Stockfish 19 supports for Android
+  BUILD_TOOLS: 34.0.0
+  PLATFORM: android-34
+
 jobs:
-  apk:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install screenshot-test dependency
-        run: python -m pip install pillow
-
-      - name: Run desktop regression tests
-        run: bash tools/test-desktop.sh
-
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'build-tools;34.0.0 platforms;android-34 ndk;27.2.12479018'
-
-      - name: Build Stockfish 19 for Android
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Tools for the desktop tests
         run: |
-          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+          sudo apt-get update && sudo apt-get install -y g++ make
+          sudo apt-get install -y python3-pil
+      - name: Desktop tests with the real Stockfish 19 (net is downloaded and its SHA-256 verified)
+        shell: bash
+        run: tools/run-host-tests.sh 2>&1 | tee test-report-host.txt
+      - name: Legacy-bridge test (Stockfish 11, bridge only)
+        shell: bash
+        run: SF_VERSION=11 tools/run-host-tests.sh 2>&1 | tee test-report-host-sf11.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: test-reports, path: test-report-*.txt }
+
+  apk:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - name: Install platform, build tools, NDK
+        run: sdkmanager "platforms;$PLATFORM" "build-tools;$BUILD_TOOLS" "ndk;$NDK_VERSION"
+
+      - name: Build Stockfish 19 for ARM64 (arm64-v8a)
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
           tools/build-stockfish-android.sh
 
-      - name: Build APK
+      - name: Build and package the APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
         run: |
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
-          export ANDROID_BUILD_TOOLS="$ANDROID_SDK_ROOT/build-tools/34.0.0"
-          export ANDROID_JAR="$ANDROID_SDK_ROOT/platforms/android-34/android.jar"
+          export ANDROID_BUILD_TOOLS="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS"
+          export ANDROID_JAR="$ANDROID_SDK_ROOT/platforms/$PLATFORM/android.jar"
           tools/build-apk.sh
           tools/package-apk.sh
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Check the APK (contents, permissions, alignment, signature)
+        shell: bash
+        run: |
+          export ANDROID_BUILD_TOOLS="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS"
+          tools/check-apk.sh build/out/ChessHintPanel-v*.apk | tee apk-check-report.txt
+
+      - uses: actions/upload-artifact@v4
         with:
           name: ChessHintPanel-apk
-          path: build/out/*.apk
+          path: |
+            build/out/ChessHintPanel-v*.apk
+            build/jnilibs/engine-build-info.txt
+            apk-check-report.txt

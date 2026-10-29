@@ -1,28 +1,32 @@
 #!/usr/bin/env bash
-# Build the same Stockfish 19 JNI bridge for host-side UCI integration tests.
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WORK="${SF_WORK_DIR:-$ROOT/build/sf}"
-SRC="$WORK/Stockfish-sf_19/src"
-OUT="$ROOT/build/host"
-mkdir -p "$WORK" "$OUT"
-if [[ ! -d "$SRC" ]]; then
-  ARCHIVE="$WORK/stockfish-sf19.tar.gz"
-  command -v curl >/dev/null || { echo "ERROR: curl is required to download official Stockfish 19." >&2; exit 1; }
-  curl --fail --location --retry 2 --output "$ARCHIVE" \
-    https://github.com/official-stockfish/Stockfish/archive/refs/tags/sf_19.tar.gz
-  tar -xzf "$ARCHIVE" -C "$WORK"
+# Desktop (Linux) build of the exact same JNI bridge + engine - used by tools/tests/EngineTest.
+#
+#   SF_VERSION=19  (default) official Stockfish 19 with its NNUE network (downloaded + verified)
+#   SF_VERSION=11  legacy Stockfish 11, only to test the bridge where the network is unreachable
+#   NO_NET=1       Stockfish 19 WITHOUT the embedded network: the library loads and answers the
+#                  UCI handshake, but cannot search - a link/handshake smoke test, nothing more
+set -e
+source "$(dirname "$0")/stockfish-common.sh"
+OUT="$ROOT/build/host-sf$SF_VERSION${NO_NET:+-nonet}"; mkdir -p "$OUT"
+sf_fetch_source
+EXTRA=""
+if [ "$SF_VERSION" = "19" ]; then
+  if [ -n "$NO_NET" ]; then EXTRA="-DNNUE_EMBEDDING_OFF"; else sf_fetch_net; fi
+  STD="-std=c++17"; ARCHF="-DIS_64BIT -DUSE_POPCNT -DUSE_SSE41 -DUSE_SSSE3 -DUSE_SSE2 -msse4.1 -mssse3 -mpopcnt"
+else
+  STD="-std=c++11"; ARCHF="-DIS_64BIT"; EXTRA="-DSF_LEGACY_11"
 fi
-[[ -f "$SRC/uci.cpp" ]] || { echo "ERROR: incomplete official Stockfish sf_19 tree." >&2; exit 1; }
-(cd "$SRC" && sh ../scripts/net.sh 1)
-JH="${JAVA_HOME:-}"
-if [[ -z "$JH" ]]; then JH="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"; fi
+JH="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}"
 INC="-I$JH/include -I$JH/include/linux"
-SRCS=(attacks benchmark bitboard evaluate misc movegen movepick position search thread timeman tt uci ucioption tune syzygy/tbprobe nnue/nnue_accumulator nnue/nnue_misc nnue/network nnue/features/half_ka_v2_hm nnue/features/full_threats nnue/features/pp_3wide engine score memory)
-FLAGS="-std=c++17 -O2 -DNDEBUG -fPIC -fno-exceptions -fno-rtti -I$SRC $INC"
-MK="$OUT/obj"; mkdir -p "$MK"
-for s in "${SRCS[@]}"; do (cd "$SRC" && g++ $FLAGS -c "$s.cpp" -o "$MK/$(basename "$s").o"); done
-g++ $FLAGS -fexceptions -c "$ROOT/native/jni_bridge.cpp" -o "$MK/jni_bridge.o"
-OBJS=(); for s in "${SRCS[@]}"; do OBJS+=("$MK/$(basename "$s").o"); done
-g++ -shared "${OBJS[@]}" "$MK/jni_bridge.o" -pthread -o "$OUT/libstockfish.so"
-ls -lh "$OUT/libstockfish.so"
+FLAGS="$STD -O2 -DNDEBUG -fPIC -fno-exceptions -w -pthread $ARCHF $EXTRA -I$SF_SRC $INC"
+MK="$OUT/obj"; rm -rf "$MK"; mkdir -p "$MK"
+OBJS=""
+for s in $(sf_sources); do
+  o="$MK/$(echo "$s" | tr / _).o"; OBJS="$OBJS $o"
+  echo "g++ $FLAGS -c $SF_SRC/$s.cpp -o $o"
+done | xargs -P "$(nproc 2>/dev/null || echo 2)" -I{} bash -c '{}'
+OBJS=""; for s in $(sf_sources); do OBJS="$OBJS $MK/$(echo "$s" | tr / _).o"; done
+g++ $FLAGS -c "$ROOT/native/jni_bridge.cpp" -o "$MK/jni_bridge.o"
+g++ -shared $FLAGS $OBJS "$MK/jni_bridge.o" -o "$OUT/libstockfish.so"
+ls -la "$OUT/libstockfish.so"
+echo "$OUT"
