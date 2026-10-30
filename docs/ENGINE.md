@@ -41,10 +41,12 @@ tools/build-stockfish-android.sh                       # needs access to github.
 Desktop build of the same bridge for the test-suite: `tools/build-stockfish-host.sh` (`SF_VERSION=11` builds the
 old Stockfish 11 used only to test the bridge code itself; it is never packaged).
 
-## Known limit of this repair environment
-The sandbox in which this repair was done could reach GitHub (source) but **not** the Stockfish network file
-(`nn-1a298aa575a0.nnue`), and has no Android NDK. Therefore Stockfish 19 was compiled and its UCI handshake
-(`uciok`/`readyok`, `id name Stockfish 19`) tested **without** the network, but **no real Stockfish 19 search was
-run there**, and the ARM64 library was not built there. Both happen in the GitHub Actions workflow
-(`.github/workflows/build.yml`), where the network is downloaded and verified and the full engine test-suite
-runs with `-Dexpect.engine="Stockfish 19"`. See `docs/TESTING.md`.
+## How Stockfish 19 was verified
+* The network file `nn-1a298aa575a0.nnue` is served by the official `official-stockfish/networks` repository
+  (`github.com/official-stockfish/networks`, LFS media); `scripts/net.sh` / `tools/stockfish-common.sh` check that the
+  first 12 hex digits of its SHA-256 equal the digits in its name before it is embedded.
+* With it, the real Stockfish 19 was compiled for the desktop through the same `native/jni_bridge.cpp` and
+  `UciEngine` that the phone uses, and `tools/tests/EngineTest.java` passed (41 checks, repeated runs). That proves
+  the engine layer and bridge on a desktop CPU. The ARM64 library itself was built with NDK r27c and inspected
+  (aarch64, 16 KB aligned, JNI exports present), but it has **not been executed** on an ARM device: no emulator or phone
+  test has been done. See `docs/TESTING.md`.

@@ -14,7 +14,8 @@ Root-cause analysis: `docs/ROOT-CAUSE.md`. Test status: `docs/TESTING.md`.
   built with NDK r27c+); validated FEN; no stale or mixed `bestmove`; cancel / restart / shutdown; sensible Threads / Hash defaults.
 * **Packaging:** `extractNativeLibs="false"` (library stored uncompressed, 16 KB page aligned), only the arm64-v8a ABI,
   engine build info + GPLv3 licence + AUTHORS + source offer inside the APK, `tools/check-apk.sh`.
-* **Tests:** `TrackerTest` (117), `CoreTest` (15), `VisionTest` (57), `EngineTest`; `tools/run-host-tests.sh`; CI runs them with the real Stockfish 19.
+* **Tests:** `TrackerTest` (117), `CoreTest` (15), `VisionTest` (57), `EngineTest` (41); `tools/run-host-tests.sh`; CI runs them with the real Stockfish 19.
+* **Test fix:** the engine promotion test used a position where promotion is a winning move but not the only one; Stockfish 19 legitimately answered `a1b2` in a share of runs. The test now uses a position where promotion is forced (see `docs/TESTING.md`).
 * **Not changed:** screen capture and permissions, board selection, overlay and controls, settings.
 * **Known limits:** documented in `docs/ROOT-CAUSE.md`. The APK size is about 100 MB (network inside the engine).
   Android 15 device behaviour has not been verified by the author of this repair (no device was available).

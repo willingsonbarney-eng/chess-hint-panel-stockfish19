@@ -86,9 +86,36 @@ public class EngineTest {
         r = e.analyze(ONLY_MOVE, 3, 200, -1);
         check("the only legal move is returned", r.ok() && "a1b2".equals(r.bestmove));
 
-        String promo = "8/P6k/8/8/8/8/8/K7 w - - 0 1";
+        // Promotion.  The position must FORCE the promotion, otherwise the test would assert an engine preference:
+        // in "8/P6k/8/8/8/8/8/K7 w" the pawn promotes in 10, but king moves such as a1b2 win by force as well, and the
+        // multi-threaded search (Lazy SMP) legitimately returns one of them on some runs (measured: 1 of 30 runs with 2
+        // threads at 400 ms, about half with 4 threads).  Here the white king is boxed in by the queen on f2 (not in check),
+        // so the ONLY legal moves are the four promotions of the a7 pawn.
+        String promo = "7k/P7/8/8/8/8/5q2/7K w - - 0 1";
+        List<Chess.Move> promoMoves = Chess.legal(Chess.fromFen(promo));
+        boolean forced = promoMoves.size() == 4;
+        for (Chess.Move m : promoMoves) forced &= m.uci().matches("a7a8[qrbn]");
+        check("promotion position: every legal move is a promotion (test premise)", forced);
         r = e.analyze(promo, 4, 400, -1);
-        check("promotion position: legal, promotes", r.ok() && r.bestmove.length() == 5 && legal(promo, r.bestmove));
+        check("promotion position: legal move in UCI promotion notation (e.g. a7a8q)",
+                r.ok() && r.bestmove.matches("[a-h][1-8][a-h][1-8][qrbn]") && legal(promo, r.bestmove));
+        // the answer must stay a promotion whatever the thread count / timing of the machine running the test
+        boolean stable = true; String seen = "";
+        for (int th : new int[]{1, 2, 4}) {
+            e.send("setoption name Threads value " + th);
+            for (int i = 0; i < 3; i++) {
+                r = e.analyze(promo, 40 + i, 150, -1);
+                if (!(r.ok() && r.bestmove.matches("a7a8[qrbn]") && legal(promo, r.bestmove))) { stable = false; seen += " [" + th + "T:" + (r.ok() ? r.bestmove : r.error) + "]"; }
+            }
+        }
+        e.send("setoption name Threads value " + com.chesshint.panel.Tune.EngineBudget.threads);
+        check("forced promotion is a promotion with 1, 2 and 4 search threads" + seen, stable);
+        // the original, non-forced position: whatever winning move the engine prefers must be legal; a pawn move to
+        // the last rank is only legal WITH its promotion letter, so a bare "a7a8" could never pass
+        String promoFree = "8/P6k/8/8/8/8/8/K7 w - - 0 1";
+        r = e.analyze(promoFree, 45, 400, -1);
+        check("non-forced promotion position: engine answer is a legal move", r.ok() && legal(promoFree, r.bestmove));
+        check("a bare pawn move to the last rank (no promotion letter) is not accepted as legal", !legal(promoFree, "a7a8"));
         String castle = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1";
         r = e.analyze(castle, 5, 300, -1);
         check("castling position: legal move", r.ok() && legal(castle, r.bestmove));
