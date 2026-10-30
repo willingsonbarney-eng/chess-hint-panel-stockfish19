@@ -25,6 +25,8 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ''     # the default 'tools platform-tools' no longer exists in current cmdline-tools; the next step installs what is needed
       - run: sdkmanager "platforms;$PLATFORM" "build-tools;$BUILD_TOOLS" "ndk;$NDK_VERSION"
       - name: Desktop tests
         run: |
