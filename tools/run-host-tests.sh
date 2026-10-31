@@ -9,13 +9,15 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SF_VERSION="${SF_VERSION:-19}"
 B="$ROOT/build/tests"; rm -rf "$B"; mkdir -p "$B/classes"
 cd "$ROOT/tools/tests"
-javac -nowarn -encoding UTF-8 -d "$B/classes" -sourcepath "$ROOT/app/java:shim:." TrackerTest.java CoreTest.java EngineTest.java VisionTest.java 2>&1 | grep -v JAVA_TOOL || true
+javac -nowarn -encoding UTF-8 -d "$B/classes" -sourcepath "$ROOT/app/java:shim:." TrackerTest.java CoreTest.java EngineTest.java VisionTest.java AutoSeedTest.java 2>&1 | grep -v JAVA_TOOL || true
 FAILED=0
 echo "######## TrackerTest"; java -cp "$B/classes" TrackerTest || FAILED=1
 echo "######## CoreTest (move generator, perft)"; java -Dskip.engine=true -cp "$B/classes" CoreTest || FAILED=1
 echo "######## VisionTest (synthetic screenshots, screen reader + confidence)"
 if python3 -c "import PIL" 2>/dev/null; then
   python3 gen_boards.py "$B/boards" > /dev/null && java -cp "$B/classes" VisionTest "$B/boards" || FAILED=1
+  echo "######## AutoSeedTest (automatic position reading, replaces the manual editor)"
+  java -cp "$B/classes" AutoSeedTest "$B/boards" || FAILED=1
 else
   echo "SKIPPED: python3 with Pillow is needed to generate the test screenshots (pip install pillow)"
 fi

@@ -71,7 +71,7 @@ board**. No root, no hooks into other apps, no internet.
 |---|---|
 | **Marks** | style (arrow+rings / arrow / rings / squares) · colours (green-amber, blue-pink, cyan-orange, white-red, lime-violet) · size (S/M/L) · move text · engine line · labels · board frame · status pill |
 | **Play** | my side · strength (MAX, 2850, 2400, 1800, 1400) · thinking time (0.5–5 s) · auto hints · vibrate |
-| **Board** | fit frame · auto detect · fix pieces · new game · bubble size |
+| **Board** | fit frame · auto detect · new game · bubble size |
 
 Every change is applied to the running panel instantly and previewed on a real board inside
 Settings ([details](docs/SETTINGS.md)).
@@ -91,7 +91,8 @@ MediaProjection ─► ScreenGrab ─► Vision ─► Track ─► Stockfish 19
 * **Track** — the reader never guesses piece types and never rewrites the position. The tracker owns the
   real position and accepts a screen change only if it is a **legal move** (1–4 plies, up to 6 in recovery;
   castling, en passant, promotion included). Uncertain squares are ignored, ambiguous or impossible changes are
-  reported instead of guessed, and a "lost" game asks you to use FIX PIECES. Why the old version
+  reported instead of guessed, and a "lost" game is re-read from the screen automatically (there is no manual FIX PIECES step any more:
+  see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), "Automatic position"). Why the old version
   changed pieces by itself: [`docs/ROOT-CAUSE.md`](docs/ROOT-CAUSE.md).
 * **Engine** — Stockfish runs inside the app process (`System.loadLibrary`, no `exec()`), so it
   works on every Android version including 10–15 with the strictest policies. The engine is asked

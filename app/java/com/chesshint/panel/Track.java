@@ -865,25 +865,4 @@ public class Track {
             if (cb[i] > ca[i]) { a[i] = b[i]; ca[i] = cb[i]; }
         }
     }
-
-    /**
-     * Seed for the "fix pieces" editor after the tracker lost the game: keep every trusted
-     * piece whose square still shows the same colour on screen; elsewhere take the (weak)
-     * silhouette suggestion.  Only ever shown to the user for confirmation.
-     */
-    public Board seedFor(int[] observed, Board guessed) {
-        Board trustedBoard = Chess.toBoard(pos, whiteBottom);
-        Board out = new Board();
-        for (int i = 0; i < 64; i++) {
-            if (observed == null || observed[i] == 0) continue;
-            int tp = trustedBoard.s[i];
-            boolean sameColour = (observed[i] == 1 && Board.isWhite(tp)) || (observed[i] == 2 && Board.isBlack(tp));
-            if (sameColour) { out.s[i] = (byte) tp; continue; }
-            int gp = guessed == null ? 0 : guessed.s[i];
-            boolean gOk = (observed[i] == 1 && Board.isWhite(gp)) || (observed[i] == 2 && Board.isBlack(gp));
-            if (gOk) out.s[i] = (byte) gp;
-            else out.s[i] = (byte) (observed[i] == 1 ? 1 : 9);
-        }
-        return out;
-    }
 }

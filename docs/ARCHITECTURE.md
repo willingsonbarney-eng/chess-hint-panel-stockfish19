@@ -37,13 +37,13 @@
    produce *low* confidence, never a confidently wrong square (checked by `VisionTest` with degraded pictures).
 
 4. **Track** (`Track.java`). The reader deliberately does **not** guess piece *types*. The tracker owns the real
-   position; it starts from the standard position (or a position the user confirms in the editor) and changes it
-   only by **legal moves** or by the user:
+   position; it starts from the standard position (or, when you join half way / the game was lost, a position built by
+   `AutoSeed`, see below) and changes it only by **legal moves**:
    * a frame must be seen `confirmFrames` times in a row (debounce); low-confidence squares are wildcards;
    * the shortest legal move sequence (up to 4 plies, 6 in recovery) that explains the certain squares is searched,
      including castling, en passant, promotion and under-promotion;
    * if more than one explanation fits equally well the result is `AMBIGUOUS` and the position is **not** changed;
-   * if nothing fits: `UNEXPLAINED`, then `LOST` - hints stop and the user is asked to use FIX PIECES;
+   * if nothing fits: `UNEXPLAINED`, then `LOST` - hints pause and `AutoSeed` re-reads the board (below);
    * orientation (which side is at the bottom) is part of the state, flips only on a whole-board match and only
      affects coordinates;
    * take-backs and new games are recognised from snapshots; every change bumps a `version` counter.
@@ -79,3 +79,25 @@
 `tools/build-apk.sh` runs `aapt2 compile/link` → `javac` (against `android.jar`) → `d8`, and
 `tools/package-apk.sh` adds the `.dex` + native libs, `zipalign`s and signs with
 `apksigner`. The CI workflow does the same on every push.
+
+## Automatic position (replaces the manual FIX PIECES editor)
+The manual editor was removed in v2.3. The position is now live and automatic:
+
+1. **Start position (exact).** A standard start position, or a few plies after it, is recognised from the colour pattern alone.
+   At that moment `PieceTemplates` also learns what *this app's* pieces look like (all twelve piece types are on the board),
+   and keeps learning from positions the tracker follows. The templates are saved in the app's settings.
+2. **Following the game (exact).** From then on every change is accepted only as a legal move (`Track`).
+3. **Joining half way, or a lost game (`AutoSeed`).** When there is no trusted position, or the tracker reports `LOST`:
+   * pieces the tracker still knows stay exactly what they were while the square shows the same colour;
+   * other pieces are read with the learned templates - but only if the templates first read the *known* pieces correctly;
+   * anything left is an **estimate** from the piece silhouette (`Vision.guessBoard`, the weakest source). An estimate
+     is shown as "(estimate)" in Diagnostics, is never used to learn templates, and is replaced as soon as the game contradicts it
+     (the tracker then reports `LOST` and the board is read again);
+   * the picture must be clear on all 64 squares and the result must be a legal position, otherwise nothing is built and it tries again on the next frame.
+4. A trusted position that is being followed is **never** overwritten by this reader.
+
+Limits (honest): the very first half-way join in a new app, with no templates yet, can only be an estimate - the silhouette
+reader is not reliable (on the synthetic test boards it got 27 of 32 pieces right mid-game, and an endgame wrong). Starting the
+panel at the beginning of any game once lets it learn the pieces, after which a half-way join is read with the templates.
+FIT BOARD, FLIP (ME: WHITE/BLACK) and NEW GAME stay available.
+

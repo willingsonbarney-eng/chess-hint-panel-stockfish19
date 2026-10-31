@@ -412,7 +412,7 @@ public class TrackerTest {
                 boolean honest = (u.status == Track.Status.AMBIGUOUS || u.status == Track.Status.UNEXPLAINED
                         || u.status == Track.Status.LOST || u.status == Track.Status.PENDING) && t.pos.fen().equals(before);
                 if (!honest) neverWrong = false;
-                t.resetUser(cur);                      // what the "fix pieces" editor does
+                t.resetUser(cur);                      // what a re-synchronisation (AutoSeed / new game) does
                 resyncs++;
             }
             if (gap <= 2) check("observing every " + gap + " ply: final board exact, no help needed", ok);
@@ -550,16 +550,6 @@ public class TrackerTest {
         String[] fens = {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
                          "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 0 1"};
         for (String f : fens) checkEq("FEN round trip", fen(f).fen(), f);
-        // seedFor keeps trusted types where the colour still agrees
-        Chess.Pos p = play(start(), "e2e4", "e7e5");
-        Track t = new Track(p, true);
-        int[] obs = Chess.pattern(p, true);
-        obs[Board.squareFromName("a2", true)] = 0;            // pawn vanished from the screen
-        Board g = new Board();
-        for (int i = 0; i < 64; i++) g.s[i] = (byte) (obs[i] == 0 ? 0 : (obs[i] == 1 ? 3 : 11));
-        Board seed = t.seedFor(obs, g);
-        check("editor seed keeps the trusted knight on b1", seed.s[Board.squareFromName("b1", true)] == 2);
-        check("editor seed leaves the vanished pawn empty", seed.s[Board.squareFromName("a2", true)] == 0);
     }
 
     // ----------------------------------------------------------------- fuzz
@@ -648,7 +638,7 @@ public class TrackerTest {
                 if (!same(t, truth)) behind.merge(t.lost ? "lost" : (sameOccupancy(t, truth) ? "sameOcc-diffId" : "behind"), 1, Integer::sum);
                 if (same(t, truth)) { followed++; sinceSync.clear(); tainted = false; }
                 else if (t.lost) {
-                    // the app tells the user ("FIX PIECES"); only a user action may re-initialise the tracker
+                    // the app re-reads the board (AutoSeed) or the user starts a new game; the tracker never re-initialises itself
                     t.resetUser(truth);
                     t.sideKnown = true;
                     userFixes++;

@@ -35,12 +35,12 @@ anti-aliasing, a one-frame misread) became a change in the position.
 * **Legal-move reconciliation:** the shortest legal move sequence (1..4 plies; up to 6 in recovery) that explains the
   observed certain squares is searched; castling, en passant, promotion (with under-promotion search) are covered.
   If more than one explanation is equally good, the result is `AMBIGUOUS` and **nothing changes** (no forced guess).
-  If nothing explains it: `UNEXPLAINED`, and after a few frames `LOST` - the panel stops hinting and offers FIX PIECES.
+  If nothing explains it: `UNEXPLAINED`, and after a few frames `LOST` - the panel pauses and re-reads the board automatically (`AutoSeed`).
 * **Orientation** is part of the tracked state; a flip is accepted only when the *whole* board matches the mirrored
   pattern, and it is applied to the display coordinates only, never to the pieces.
 * **Whole-board validation** (`Chess.validate`): kings, pawn ranks, piece counts, side-not-to-move not in check,
   castling rights feasible - invalid positions are rejected with a reason, never silently repaired.
-* **Take-backs, new game** are recognised from the snapshots/start position; **FIX PIECES** is the safe recovery path.
+* **Take-backs, new game** are recognised from the snapshots/start position; **AutoSeed** is the recovery path (it only builds a position when none is trusted, never overwrites one).
 * **Synchronised state:** board, side to move, FEN, move history and the analysis all come from one `Track` snapshot
   with a `version` counter; the engine result is applied only if its FEN equals the current trusted FEN.
 * **Engine:** results are tagged with the analysed FEN; cancel/restart/shutdown can no longer leak an old `bestmove`.
@@ -53,4 +53,4 @@ Colour-only observation cannot distinguish some things; the tracker reports them
 * castling versus a king walk + rook move that produce the same colours;
 * look-alike identity swaps after 4 or more unobserved plies (e.g. the app was in the background);
 * the side to move across a gap of several unobserved plies (`sideKnown=false` until the next observed move);
-* gaps of 3+ plies may report `AMBIGUOUS` / `LOST` and then need the user's **FIX PIECES** once.
+* gaps of 3+ plies may report `AMBIGUOUS` / `LOST` and then need `AutoSeed` to re-read the board (pieces still known are kept; the rest is read with learned templates, or estimated and flagged).

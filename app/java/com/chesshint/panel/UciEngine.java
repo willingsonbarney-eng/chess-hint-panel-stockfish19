@@ -132,6 +132,9 @@ public class UciEngine {
         return false;
     }
 
+    /** the engine packaged in this APK (shown in the app; EngineTest checks it against what the engine really reports) */
+    public static final String BUNDLED_NAME = "Stockfish 19";
+
     public static String libraryError() { return libError; }
     /** which native library variant is loaded ("stockfish" or "stockfish_dp") */
     public static String libraryName() { return libName; }

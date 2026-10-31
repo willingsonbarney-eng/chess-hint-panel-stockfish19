@@ -32,13 +32,14 @@ A small **♞ HINT** button appears - drag it wherever you like.
 1. Open your chess game. **Your pieces must be at the bottom** (use ♞ → ME: WHITE/BLACK if not, or set *My side* in Settings).
 2. Tap **♞ → SHOW MY MOVE**.
 3. The first time, if the panel cannot find the board automatically: tap **FIT BOARD**, drag the frame exactly onto the board, **SAVE**.
-4. If the pieces shown differ from the real position (you joined a game in the middle): **FIX PIECES** and correct them once.
+4. Joining a game in the middle works automatically: the panel reads the position from the screen (best if you started the panel at
+   the start of any game once before, so it learned your app's pieces). If it is wrong, the next moves will not fit and it re-reads the board.
 5. From then on the panel follows the game by itself - turn **AUTO** on for a hint on every one of your turns.
 
 ## How it behaves now (v2.3)
 * The panel never "re-reads" the pieces from pictures. It follows the game move by move and only accepts a change that is a **legal move**.
 * If it is not sure (animation, a highlight, a missed move) it shows a *waiting / not sure* state instead of guessing.
-  If it truly lost the game it says so and asks you to use **FIX PIECES** (or **NEW GAME**).
+  If it lost the game it says so and reads the board again by itself (**NEW GAME** at the start of a game also works).
 
 ## Troubleshooting
 
@@ -48,7 +49,7 @@ A small **♞ HINT** button appears - drag it wherever you like.
 | *"Screen reading failed"* | Tap **Retry screen reading** in the app. Check the battery settings above. |
 | *"No chess board on screen"* | The board is not visible or drawn at an unusual size - tap **FIT BOARD** once. |
 | Arrow on the wrong squares | Board frame drifted → **FIT BOARD**; or the orientation is wrong → ♞ → ME: WHITE/BLACK. |
-| *"Board not sure / out of sync"* | A move was missed while the screen was off → **FIX PIECES**, or **NEW GAME** at the start. |
+| *"Board not sure / out of sync"* | A move was missed while the screen was off → it re-reads the board by itself; **NEW GAME** at the start of a game. |
 | Nothing appears over the chess app | The overlay permission is off (Step 1). |
 | Panel stops by itself | Battery → **Unrestricted** (see above). |
 | Hints too slow | Settings → *Thinking time* → 0.5 s. |

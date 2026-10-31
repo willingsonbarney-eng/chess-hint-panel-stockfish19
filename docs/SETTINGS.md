@@ -33,13 +33,12 @@ marks will look like on your own board.
 |---|---|
 | **Fit frame** | Shows the draggable yellow frame — corners resize, middle moves, empty area starts a new frame. Use it when auto-detection is off or the theme is unusual. |
 | **Auto detect** | Searches the current screen for a chess board and sets the frame. |
-| **Fix pieces** | Opens the board editor: tap a square to cycle empty → ♙♘♗♖♕♔ (white) → ♟♞♝♜♛♚ (black) → empty. Use it once when you join a game mid-way. |
-| **New game** | Resets the tracked position to the standard starting position. |
+| **New game** | Resets the tracked position to the standard starting position. (There is no *Fix pieces* editor any more: the position is read automatically.) |
 | **Bubble size** | Small / Normal / Large — the size of the floating ♞ button. |
 
 ## Tips
 
 * **The arrow is on the wrong squares** → the frame drifted. Tap **Fit frame**.
-* **"Board out of sync"** → a move happened while the screen was off. **Fix pieces**, or **New game**.
+* **"Board out of sync"** → a move happened while the screen was off. It re-reads the board by itself, or press **New game**.
 * **Hints feel slow** → *Thinking time* → 0.5 s (still far stronger than any human).
 * **You want a clean screen** → turn off *engine line*, *labels* and *status messages*; only the arrow stays.

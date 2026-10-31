@@ -15,7 +15,6 @@ public class PanelView extends LinearLayout {
         void onAuto();
         void onSettings();
         void onFit();
-        void onFix();
         void onFlip();
         void onNewGame();
         void onHide();
@@ -56,8 +55,8 @@ public class PanelView extends LinearLayout {
         addView(r2, top());
 
         LinearLayout r3 = Ui.row(c);
-        r3.addView(tile("FIX PIECES", 0, v -> l.onFix()), tileLpLeft());
-        r3.addView(tile("NEW GAME", 0, v -> l.onNewGame()), tileLpRight());
+        r3.addView(tile("NEW GAME", 0, v -> l.onNewGame()),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         addView(r3, top());
 
         LinearLayout r4 = Ui.row(c);

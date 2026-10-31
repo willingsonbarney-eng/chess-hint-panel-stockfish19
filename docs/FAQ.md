@@ -8,12 +8,14 @@ API and finds the board like a human eye would. Any theme, any app, online or of
 No. The bottom half of the board is treated as *you*; the engine is asked only for your
 side's move. While it is the enemy's turn the panel shows "Waiting for the enemy…".
 
-**Why does it sometimes ask me to fix the pieces?**
-The screen reader can see *that* a square has a piece and *which colour* it is, but not reliably whether it
-is a bishop or a pawn. So the panel starts from a known position and then follows every move exactly - a change
-is accepted only if it is a legal move. If it cannot decide (for example several moves were missed at once and
-more than one explanation fits) it does **not** guess; it tells you, and you set the pieces once with FIX PIECES.
-If you join a game in the middle, set the pieces once as well.
+**Is there a FIX PIECES button?**
+No - it was removed. The screen reader can see *that* a square has a piece and *which colour* it is, but not reliably
+whether it is a bishop or a pawn. So the panel follows every move exactly (a change is accepted only if it is a legal
+move) and, if it loses the game or you join in the middle, it **reads the board again by itself**: it keeps the pieces it
+is still sure of, reads the others with the shapes it learned from this app's pieces at the start of earlier games, and
+only as a last resort estimates from the silhouette (shown as "estimate" in Diagnostics). For the best result start the
+panel at the beginning of a game once so it can learn your app's pieces. If an estimate is wrong the next moves do not
+fit it and the board is read again. **NEW GAME** and **FIT BOARD** are still there.
 
 **Is 8000 Elo possible?**
 No engine on earth reaches 8000. The strongest measured engines are ~3600 and Stockfish at

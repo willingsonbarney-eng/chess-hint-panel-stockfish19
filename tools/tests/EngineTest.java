@@ -49,6 +49,7 @@ public class EngineTest {
         System.out.println("        engine says: \"" + e.engineName() + "\"   library: " + UciEngine.libraryName());
         check("engine identifies itself as Stockfish", e.engineName().startsWith("Stockfish"));
         if (expect != null) check("engine version is \"" + expect + "\" (got \"" + e.engineName() + "\")", e.engineName().startsWith(expect));
+        if (expect != null) check("the engine name shown in the app (\"" + UciEngine.BUNDLED_NAME + "\") is the engine that is packaged", expect.equals(UciEngine.BUNDLED_NAME));
 
         e.clearRaw();
         e.send("isready");

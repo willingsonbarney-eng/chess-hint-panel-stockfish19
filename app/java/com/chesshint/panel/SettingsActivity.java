@@ -147,8 +147,8 @@ public class SettingsActivity extends Activity {
         br.addView(Ui.ghostButton(this, "Auto detect", v -> call(1)), weightRight());
         boardCard.addView(br, Ui.lpTop(this, 0, 10));
         LinearLayout br2 = Ui.row(this);
-        br2.addView(Ui.ghostButton(this, "Fix pieces", v -> call(2)), weightLeft());
-        br2.addView(Ui.ghostButton(this, "New game", v -> call(3)), weightRight());
+        br2.addView(Ui.ghostButton(this, "New game", v -> call(3)),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         boardCard.addView(br2, Ui.lpTop(this, 0, 8));
 
         boardCard.addView(Ui.text(this, "Bubble size", 12.5f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 14));
@@ -159,8 +159,8 @@ public class SettingsActivity extends Activity {
         // -------------------------------------------------- ABOUT
         LinearLayout about = Ui.card(this);
         about.addView(Ui.sectionTitle(this, "ABOUT"));
-        about.addView(Ui.text(this, "Version 2.2  •  Stockfish 11", 13.5f, Ui.TEXT, true));
-        about.addView(Ui.text(this, "Native Stockfish 11 engine compiled for ARM64 / ARMv7 / x86_64.\n"
+        about.addView(Ui.text(this, "Version " + Ui.appVersion(this) + "  •  " + UciEngine.BUNDLED_NAME, 13.5f, Ui.TEXT, true));
+        about.addView(Ui.text(this, UciEngine.BUNDLED_NAME + " (with its NNUE network) runs natively on your phone - ARM64 only.\n"
                 + "Runs 100% offline — the board is read directly on your device and every suggested move is strictly validated against chess rules.",
                 12f, Ui.TEXT_DIM, false), Ui.lpTop(this, 0, 6));
         root.addView(about, Ui.lpTop(this, 0, 12));
@@ -186,7 +186,6 @@ public class SettingsActivity extends Activity {
         switch (what) {
             case 0: OverlayService.requestCalibration(); toast("Drag the frame over the board"); break;
             case 1: OverlayService.requestAutoDetect(); toast("Looking for the board…"); break;
-            case 2: OverlayService.requestEditor(); toast("Tap the squares to fix the pieces"); break;
             case 3: OverlayService.newGame(); toast("Position reset"); break;
         }
     }

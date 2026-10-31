@@ -1,6 +1,9 @@
 Files changed by the repair, compared with the original chess-hint-panel-main.zip  (M = modified, A = added, D = removed)
 
 A  apk/README.md
+A  app/java/com/chesshint/panel/AutoSeed.java
+A  app/java/com/chesshint/panel/PieceTemplates.java
+A  tools/tests/AutoSeedTest.java
 A  docs/ENGINE.md
 A  docs/MODIFIED-FILES.txt
 A  docs/ROOT-CAUSE.md
@@ -19,6 +22,11 @@ M  LICENSE
 M  README.md
 M  app/AndroidManifest.xml
 M  app/java/com/chesshint/panel/Chess.java
+M  app/java/com/chesshint/panel/MainActivity.java
+M  app/java/com/chesshint/panel/PanelView.java
+M  app/java/com/chesshint/panel/SettingsActivity.java
+M  app/java/com/chesshint/panel/Ui.java
+D  app/java/com/chesshint/panel/BoardEditorView.java
 M  app/java/com/chesshint/panel/OverlayService.java
 M  app/java/com/chesshint/panel/Track.java
 M  app/java/com/chesshint/panel/Tune.java

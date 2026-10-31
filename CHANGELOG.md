@@ -1,6 +1,16 @@
 # Changelog
 
 ## v2.3 - repair release (current)
+**Latest changes in v2.3**
+
+* **FIX PIECES removed - the position is automatic and live.** New `AutoSeed` + `PieceTemplates`: the app learns what the
+  pieces of *your* chess app look like at the start of a game, keeps every piece the tracker still knows, and re-reads the
+  board by itself when the game was joined half way or lost. A silhouette-only estimate is the last resort and is flagged;
+  it never overwrites a position that is being followed. FIT BOARD and NEW GAME are unchanged.
+* **Engine label fixed:** the app showed "Stockfish 11 • v2.2" although Stockfish 19 was packaged. It now shows
+  "Stockfish 19" and the real app version (read from the manifest); `EngineTest` checks the label against the engine.
+* Tests: `AutoSeedTest` (32) added; `TrackerTest` now 115.
+
 **Fixes "piece identities change by themselves" and upgrades the engine to Stockfish 19.**
 Root-cause analysis: `docs/ROOT-CAUSE.md`. Test status: `docs/TESTING.md`.
 
@@ -14,7 +24,7 @@ Root-cause analysis: `docs/ROOT-CAUSE.md`. Test status: `docs/TESTING.md`.
   built with NDK r27c+); validated FEN; no stale or mixed `bestmove`; cancel / restart / shutdown; sensible Threads / Hash defaults.
 * **Packaging:** `extractNativeLibs="false"` (library stored uncompressed, 16 KB page aligned), only the arm64-v8a ABI,
   engine build info + GPLv3 licence + AUTHORS + source offer inside the APK, `tools/check-apk.sh`.
-* **Tests:** `TrackerTest` (117), `CoreTest` (15), `VisionTest` (57), `EngineTest` (41); `tools/run-host-tests.sh`; CI runs them with the real Stockfish 19.
+* **Tests:** `TrackerTest` (115), `CoreTest` (15), `VisionTest` (57), `AutoSeedTest` (32), `EngineTest` (42); `tools/run-host-tests.sh`; CI runs them with the real Stockfish 19.
 * **Test fix:** the engine promotion test used a position where promotion is a winning move but not the only one; Stockfish 19 legitimately answered `a1b2` in a share of runs. The test now uses a position where promotion is forced (see `docs/TESTING.md`).
 * **Not changed:** screen capture and permissions, board selection, overlay and controls, settings.
 * **Known limits:** documented in `docs/ROOT-CAUSE.md`. The APK size is about 100 MB (network inside the engine).

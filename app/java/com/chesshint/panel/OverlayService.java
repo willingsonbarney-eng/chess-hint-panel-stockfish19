@@ -45,7 +45,7 @@ import java.util.Locale;
  *    demand inside grab(), avoiding heap exhaustion right after granting screen capture.
  */
 public class OverlayService extends Service implements
-        BubbleView.Listener, PanelView.Listener, CalibrationView.Listener, BoardEditorView.Listener {
+        BubbleView.Listener, PanelView.Listener, CalibrationView.Listener {
 
     public static final String EXTRA_CODE = "code";
     public static final String EXTRA_DATA = "data";
@@ -157,6 +157,16 @@ public class OverlayService extends Service implements
      *  frames grabbed and analyses started before the bump are dropped instead of being applied to the new situation */
     private volatile int epoch;
     private Vision.Result lastVisionResult;
+    /** what THIS app's pieces look like - learned from positions the tracker trusts, used to read a position that has no history */
+    private final PieceTemplates templates = new PieceTemplates();
+    private int savedTemplatesVersion;
+    private long lastTemplateSaveMs;
+    /** false after a position that contains silhouette estimates: never used to learn piece templates */
+    private volatile boolean trackReliable = true;
+    /** consecutive automatic attempts to read a position from the screen that did not succeed */
+    private int seedRetries;
+    /** how the current position was obtained (shown to the user) */
+    private volatile String trackSource = "";
 
     private OverlayView overlay;
     private BubbleView bubble;
@@ -165,8 +175,6 @@ public class OverlayService extends Service implements
     private WindowManager.LayoutParams panelLp;
     private CalibrationView calib;
     private AndroidView calibHost;
-    private BoardEditorView editor;
-    private AndroidView editorHost;
 
     private volatile boolean busy;
     private volatile boolean startingCapture;
@@ -205,6 +213,9 @@ public class OverlayService extends Service implements
         LIVE_WM = wm;
         purgeAllWindows();
         prefs = new Prefs(this);
+        try {
+            if (templates.load(prefs.raw().getString("piece_templates_v1", ""))) savedTemplatesVersion = templates.version();
+        } catch (Throwable ignored) { }
         vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
         workerThread = new HandlerThread("hint-worker");
         workerThread.start();
@@ -572,7 +583,7 @@ public class OverlayService extends Service implements
     private String positionText() {
         Track t = track;
         if (t == null) return "no position yet";
-        if (t.lost) return "position lost - FIX PIECES";
+        if (t.lost) return "position lost - reading the board again";
         if (!t.sideKnown) return "turn unknown";
         return (t.pos.side == Chess.WHITE ? "white" : "black") + " to move";
     }
@@ -650,14 +661,11 @@ public class OverlayService extends Service implements
         removeWindow(bubble, false);
         removeWindow(panel, false);
         removeWindow(calibHost, false);
-        removeWindow(editorHost, false);
         overlay = null;
         bubble = null;
         panel = null;
         calibHost = null;
-        editorHost = null;
         calib = null;
-        editor = null;
         windowAdded = false;
     }
 
@@ -751,7 +759,8 @@ public class OverlayService extends Service implements
         sb.append("position: ").append(tr == null ? "not tracked" : tr.pos.fen());
         if (tr != null) {
             sb.append("\ntracker: version ").append(tr.version).append(tr.lost ? ", LOST" : "")
-                    .append(tr.sideKnown ? "" : ", turn unknown").append(s.trackNote.isEmpty() ? "" : " (" + s.trackNote + ")");
+                    .append(tr.sideKnown ? "" : ", turn unknown")
+                    .append(s.trackSource.isEmpty() ? "" : ", " + s.trackSource).append(s.trackNote.isEmpty() ? "" : " (" + s.trackNote + ")");
             if (!tr.lastInfo.isEmpty()) sb.append("\nlast move(s) seen: ").append(tr.lastInfo);
         }
         String crash = CrashGuard.lastCrash(s);
@@ -910,7 +919,6 @@ public class OverlayService extends Service implements
     }
 
     @Override public void onFit() { hidePanel(); showCalibration(prefs.boardRect()); }
-    @Override public void onFix() { hidePanel(); showEditor(); }
 
     @Override
     public void onFlip() {
@@ -943,6 +951,8 @@ public class OverlayService extends Service implements
             if (track == null) track = new Track(p, wb);
             else { track.reset(p); track.setWhiteBottom(wb); }
         }
+        trackReliable = true;
+        trackSource = "";
         worker.post(() -> { try { if (engine != null) { engine.cancel(); engine.newGame(); } } catch (Throwable ignored) { } });   // may wait for the engine: never on the UI thread
         lastAutoPattern = null;
         hintSquareSig = null;
@@ -980,7 +990,7 @@ public class OverlayService extends Service implements
         panel = null;
     }
 
-    // ==================================================================== calibration / editor
+    // ==================================================================== calibration
 
     private void showCalibration(Rect start) {
         if (destroyed || calibHost != null) return;
@@ -1089,96 +1099,6 @@ public class OverlayService extends Service implements
         });
     }
 
-    private void showEditor() {
-        if (destroyed || editorHost != null) return;
-        hidePanel();
-        Board b;
-        synchronized (trackLock) {
-            if (track != null && track.lost && lastVisionResult != null && lastVisionResult.ok) {
-                // lost track: keep every trusted piece whose colour still matches the screen, show the rest
-                // as a suggestion the user has to confirm
-                b = track.seedFor(lastVisionResult.colorPat, Vision.guessBoard(lastVisionResult, prefs.whiteBottom()));
-            } else if (track != null) {
-                b = Chess.toBoard(track.pos, prefs.whiteBottom());
-            } else if (lastVisionResult != null && lastVisionResult.ok) {
-                b = Vision.guessBoard(lastVisionResult, prefs.whiteBottom());      // a suggestion only
-            } else {
-                b = Board.starting(prefs.whiteBottom());
-            }
-        }
-        editor = new BoardEditorView(this, this);
-        Rect r = prefs.boardRect();
-        if (r == null) {
-            Point s = screenSize();
-            int side = (int) (Math.min(s.x, s.y) * 0.78f);
-            r = new Rect((s.x - side) / 2, dp(70), (s.x + side) / 2, dp(70) + side);
-        }
-        editor.setBoard(b, r, prefs.whiteBottom());
-        editorHost = new AndroidView(this, editor);
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT);
-        if (Build.VERSION.SDK_INT >= 28) {
-            lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-        }
-        lp.gravity = Gravity.TOP | Gravity.START;
-        try {
-            wm.addView(editorHost, lp);
-            registerWindow(editorHost);
-        } catch (Throwable t) {
-            editorHost = null;
-            editor = null;
-            toast("Could not open the editor");
-        }
-    }
-
-    private void hideEditor() {
-        removeWindow(editorHost, false);
-        editorHost = null;
-        editor = null;
-    }
-
-    @Override
-    public void onEditorApply(Board b, boolean whiteBottom) {
-        // the user is the authority here: but even the user's board must be a legal chess position
-        Chess.Pos p = Chess.fromBoard(b, whiteBottom, whiteBottom ? Chess.WHITE : Chess.BLACK);
-        Track nt = new Track(Track.startPosition(), whiteBottom);
-        String err = nt.resetUser(p);
-        if (!err.isEmpty()) {
-            toast("Not a legal position: " + err);        // editor stays open, nothing was changed
-            return;
-        }
-        epoch++;
-        prefs.setWhiteBottom(whiteBottom);
-        if (overlay != null) {
-            overlay.clearHint();
-            overlay.applyPrefs(prefs);
-        }
-        synchronized (trackLock) { track = nt; }
-        try { if (engine != null) engine.cancel(); } catch (Throwable ignored) { }
-        lastAutoPattern = Chess.pattern(p, whiteBottom);
-        hintSquareSig = null;
-        prevPollSig = null;
-        waitingForOpponent = false;
-        trackNote = "";
-        autoRefused = false;
-        hideEditor();
-        setStatus("Position set", "your move");
-    }
-
-    @Override public void onEditorCancel() { hideEditor(); }
-
-    @Override
-    public void onEditorFlip() {
-        if (editor != null) {
-            editor.whiteBottom = !editor.whiteBottom;
-            editor.invalidate();
-        }
-    }
-
     // ==================================================================== position reconciliation & helpers
 
     private static final int SYNC_OK = 0;          // trusted position agrees with the screen
@@ -1188,8 +1108,8 @@ public class OverlayService extends Service implements
 
     /**
      * Reconciles a clean, settled Vision.Result with the trusted position.  Piece identities only ever
-     * change through legal moves found by {@link Track} (or by the user in the editor) - the silhouette
-     * classifier is never allowed to rewrite the position.  Whatever cannot be explained is reported,
+     * change through legal moves found by {@link Track} (or by {@link AutoSeed} when there is no
+     * trusted position at all) - the silhouette classifier is never allowed to rewrite a trusted position.  Whatever cannot be explained is reported,
      * not guessed.
      */
     private int syncTracker(Vision.Result res) {
@@ -1212,11 +1132,18 @@ public class OverlayService extends Service implements
                 // plies after it, with white at the bottom or at the top
                 Track cand = startTrack(res, wb);
                 if (cand == null) cand = startTrack(res, !wb);
-                if (cand == null) { trackNote = "Position not confirmed"; return SYNC_NO_POSITION; }
-                track = cand;
-                if (cand.whiteBottom != wb) prefs.setWhiteBottom(cand.whiteBottom);
-                trackNote = "";
-                return SYNC_OK;
+                if (cand != null) {
+                    track = cand;
+                    trackReliable = true;
+                    trackSource = "";
+                    if (cand.whiteBottom != wb) prefs.setWhiteBottom(cand.whiteBottom);
+                    trackNote = "";
+                    learnTemplates(res);
+                    return SYNC_OK;
+                }
+                // joined half way: read the position from the screen (automatic - nothing for the user to fix)
+                if (autoSeedLocked(res, wb, null, newGame)) return SYNC_OK;
+                return SYNC_NO_POSITION;
             }
             long vBefore = track.version;
             track.setWhiteBottom(wb);
@@ -1227,10 +1154,17 @@ public class OverlayService extends Service implements
                 try { if (engine != null) engine.cancel(); } catch (Throwable ignored) { }
                 if (u.status == Track.Status.NEW_GAME) newGame[0] = true;
             }
-            if (track.lost) { trackNote = "Lost track of the game"; return SYNC_LOST; }
+            if (track.lost) {
+                // the game could not be followed: read the board again, keeping every piece that is still sure
+                if (autoSeedLocked(res, wb, track, newGame)) return SYNC_OK;
+                trackNote = "Lost track of the game - reading the board again";
+                return SYNC_LOST;
+            }
             switch (u.status) {
                 case UNCHANGED: case MOVED: case REWOUND: case NEW_GAME: case ORIENTATION:
                     trackNote = u.status == Track.Status.MOVED && !track.sideKnown ? "turn uncertain" : "";
+                    if (u.status == Track.Status.NEW_GAME) { trackReliable = true; trackSource = ""; }
+                    if (u.ok) learnTemplates(res);
                     return SYNC_OK;
                 case AMBIGUOUS:
                     trackNote = "Several moves fit - waiting";
@@ -1240,6 +1174,45 @@ public class OverlayService extends Service implements
                     return SYNC_WAIT;
             }
         }
+    }
+
+    /**
+     * There is no trusted position (or it was lost): build one from the screen with {@link AutoSeed}.
+     * The caller holds {@link #trackLock}.  A position that is only an estimate is used, but marked as such,
+     * never used to learn piece templates, and replaced as soon as the game contradicts it (the tracker then
+     * reports the game as lost and this runs again).
+     */
+    private boolean autoSeedLocked(Vision.Result res, boolean wb, Track old, boolean[] newGame) {
+        AutoSeed.Result r;
+        try { r = AutoSeed.seed(res, wb, old, templates); } catch (Throwable t) { CrashGuard.record(this, "autoseed", t); return false; }
+        if (!r.ok()) { trackNote = old == null ? "Reading the board: " + r.problem : "Lost track - " + r.problem; return false; }
+        Track nt = new Track(Track.startPosition(), wb);
+        if (!nt.resetUser(r.pos).isEmpty()) { trackNote = "Reading the board: position not legal"; return false; }
+        if (old != null) nt.version = old.version + 1;          // anything still being analysed belongs to the old position
+        track = nt;
+        trackReliable = r.source != AutoSeed.SRC_ESTIMATED;
+        trackSource = r.source == AutoSeed.SRC_ESTIMATED ? "read from the screen (estimate)"
+                : r.source == AutoSeed.SRC_LEARNED ? "read from the screen" : "re-synchronised";
+        trackNote = r.source == AutoSeed.SRC_ESTIMATED ? "Position estimated from the screen" : "";
+        newGame[0] = old == null;
+        try { if (engine != null) engine.cancel(); } catch (Throwable ignored) { }
+        return true;
+    }
+
+    /** the picture agrees with a position the tracker trusts: remember what this app's pieces look like (caller holds trackLock) */
+    private void learnTemplates(Vision.Result res) {
+        Track t = track;
+        if (t == null || t.lost || !trackReliable || res == null || !res.ok) return;
+        try {
+            templates.learn(res, t.pos, t.whiteBottom);
+            int v = templates.version();
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (v != savedTemplatesVersion && templates.ready() && now - lastTemplateSaveMs > 5000) {
+                savedTemplatesVersion = v;
+                lastTemplateSaveMs = now;
+                prefs.raw().edit().putString("piece_templates_v1", templates.serialize()).apply();
+            }
+        } catch (Throwable ignored) { }
     }
 
     /** whose turn it is according to the TRACKER (exact), falling back to the pixel-based guess only while the tempo is unknown */
@@ -1418,10 +1391,10 @@ public class OverlayService extends Service implements
         synchronized (trackLock) {
             trackAtRequest = track;
             if (track == null || sync == SYNC_NO_POSITION) {
-                refusal = "Position not confirmed - tap FIX PIECES (or NEW GAME)";
+                refusal = trackNote.isEmpty() ? "Reading the board - waiting for a clear picture" : trackNote;
                 usePos = null; posVersion = -1;
             } else if (sync == SYNC_LOST || track.lost) {
-                refusal = "Lost track of the game - tap FIX PIECES";
+                refusal = "Lost track of the game - reading the board again";
                 usePos = null; posVersion = -1;
             } else if (sync == SYNC_WAIT || !track.matches(res.colorPat, res.conf)) {
                 refusal = trackNote.isEmpty() ? "Board changed - waiting for a clear picture" : trackNote;
@@ -1436,7 +1409,7 @@ public class OverlayService extends Service implements
                 c.side = userSide;                       // the user asked: it is the user's move
                 String bad = Chess.validate(c);
                 if (!bad.isEmpty()) {
-                    refusal = "Position looks wrong (" + bad + ") - tap FIX PIECES";
+                    refusal = "Position looks wrong (" + bad + ") - waiting for the next move";
                     usePos = null; posVersion = -1;
                 } else {
                     refusal = null;
@@ -1447,11 +1420,15 @@ public class OverlayService extends Service implements
             }
         }
         if (refusal != null) {
-            autoRefused = true;
+            // while the board is still being read (no position yet / lost) try again on the next poll a few times:
+            // the picture may just have been unclear.  Everything else waits until the board changes.
+            boolean reading = sync == SYNC_NO_POSITION || sync == SYNC_LOST;
+            autoRefused = !reading || ++seedRetries > 6;
             postSafe(() -> finishBusy(refusal));
             return;
         }
         autoRefused = false;
+        seedRetries = 0;
         final boolean sideKnownAtRequest = sk;
 
         // Collect all visually valid legal moves in usePos (colour picture of the live screen)
@@ -2068,7 +2045,7 @@ public class OverlayService extends Service implements
                 }
 
                 int mover = whoMovedLast(lastAutoPattern, res, userSide);
-                if (mover != 0) autoRefused = false;
+                if (mover != 0) { autoRefused = false; seedRetries = 0; }
                 int selIdx = detectUserSelectedSquare(res, userSide, lastUserMoveToIdx);
 
                 if (mover == 0) {
@@ -2240,7 +2217,6 @@ public class OverlayService extends Service implements
                     if (s != null && !s.destroyed) {
                         s.hidePanel();
                         s.hideCalibration();
-                        s.hideEditor();
                     }
                 });
             }
@@ -2278,11 +2254,6 @@ public class OverlayService extends Service implements
     public static void requestAutoDetect() {
         if (INSTANCE == null || INSTANCE.destroyed) return;
         INSTANCE.postSafe(() -> INSTANCE.autoDetectBoard(false));
-    }
-
-    public static void requestEditor() {
-        if (INSTANCE == null || INSTANCE.destroyed) return;
-        INSTANCE.postSafe(INSTANCE::showEditor);
     }
 
     public static void newGame() {
@@ -2328,7 +2299,7 @@ public class OverlayService extends Service implements
             if (!err.isEmpty()) { toast("Not a legal position: " + err); return; }
             nt.sideKnown = true;                      // the FEN states whose move it is
             epoch++;
-            synchronized (trackLock) { track = nt; }
+            synchronized (trackLock) { track = nt; trackReliable = true; trackSource = "loaded from FEN"; }
             try { if (engine != null) engine.cancel(); } catch (Throwable ignored) { }
             lastAutoPattern = null;
             autoRefused = false;

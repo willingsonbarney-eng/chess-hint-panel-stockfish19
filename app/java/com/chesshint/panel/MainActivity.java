@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
 
         // ---- compact top navigation bar (no application name, zero wasted space)
         LinearLayout bar = Ui.row(this);
-        TextView engineBadge = Ui.text(this, "\u265E  Stockfish 11  •  v2.2", 12f, Ui.TEXT_DIM, true);
+        TextView engineBadge = Ui.text(this, "\u265E  " + UciEngine.BUNDLED_NAME + "  •  v" + Ui.appVersion(this), 12f, Ui.TEXT_DIM, true);
         engineBadge.setBackground(Ui.round(Ui.CHIP, Ui.CARD_BORDER, this, 10));
         engineBadge.setPadding(Ui.dp(this, 10), Ui.dp(this, 6), Ui.dp(this, 10), Ui.dp(this, 6));
         bar.addView(engineBadge);
@@ -144,9 +144,9 @@ public class MainActivity extends Activity {
             OverlayService.requestCalibration();
             toast("Drag the yellow frame over the board");
         }), weightLeft());
-        r1.addView(Ui.ghostButton(this, "Fix pieces", v -> {
-            OverlayService.requestEditor();
-            toast("Tap squares to correct the pieces");
+        r1.addView(Ui.ghostButton(this, "Find board", v -> {
+            OverlayService.requestAutoDetect();
+            toast("Looking for the board…");
         }), weightRight());
         root.addView(quick, Ui.lpTop(this, 0, 12));
         quick.addView(r1, Ui.lpTop(this, 0, 4));

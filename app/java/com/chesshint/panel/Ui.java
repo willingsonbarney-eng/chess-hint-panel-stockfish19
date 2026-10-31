@@ -25,6 +25,15 @@ public class Ui {
     public static final int ACCENT2 = 0xFFFFD400;
     public static final int DANGER = 0xFFFF5C6C;
 
+    /** the versionName of the installed app (from the manifest, so the screen can never show an old number) */
+    public static String appVersion(Context c) {
+        try {
+            String v = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+            if (v != null && !v.isEmpty()) return v;
+        } catch (Throwable ignored) { }
+        return "?";
+    }
+
     public static int dp(Context c, float v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
     }

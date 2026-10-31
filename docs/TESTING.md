@@ -14,18 +14,20 @@ Run: `tools/run-host-tests.sh` (needs a JDK, g++, Python 3 + Pillow, and access 
 
 | Suite | Checks | What it covers |
 |---|---|---|
-| `TrackerTest` | 117 | identical frames never change anything; low-confidence frames; single legal moves; captures; castling (both sides, both colours); en passant; promotion (and under-promotion); both orientations and orientation flip; non-start positions; impossible transitions are refused; wildcard squares; ambiguous explanations are *not* guessed; recovery (LOST → FIX PIECES); take-back; new game; multi-ply gaps; identical-colour pictures from different pieces are never guessed; randomised games with noise, dropped frames and glitches (a wrong position may never be reported as trusted); speed |
+| `TrackerTest` | 115 | identical frames never change anything; low-confidence frames; single legal moves; captures; castling (both sides, both colours); en passant; promotion (and under-promotion); both orientations and orientation flip; non-start positions; impossible transitions are refused; wildcard squares; ambiguous explanations are *not* guessed; recovery (LOST → re-synchronise); take-back; new game; multi-ply gaps; identical-colour pictures from different pieces are never guessed; randomised games with noise, dropped frames and glitches (a wrong position may never be reported as trusted); speed |
+| `AutoSeedTest` | 32 | the automatic position reader that replaced FIX PIECES: templates learn from the start position and only from a picture that matches the position; half-way join read exactly with learned templates; without templates the result is flagged as an estimate; busy/unclear pictures are refused, never wrong; other theme never gives an unflagged wrong board; lost game keeps every still-known piece; impossible pictures refused; save/load of templates |
 | `CoreTest` | 15 | move generator against published perft numbers; the tracker following a short game from colour patterns alone |
 | `VisionTest` | 57 | board detection + square reading on synthetic screenshots of different themes/sizes (start position, mid-game, endgame, dark theme, busy background, promotion, no board); confidence calibration; **degraded pictures** (noise, translucent highlights over squares): no wrong square may be trusted |
-| `EngineTest` | 41 with the real Stockfish 19 / 40 with the Stockfish 11 test engine / 7 (Stockfish 19 without its network, handshake only) | `uci`/`uciok`/`readyok`; engine name; legal `bestmove` for several positions incl. promotion, castling, en passant; forced mate / only-move positions prove the answer belongs to *its* position; 24 alternating analyses never mix answers; invalid FEN rejected; cancel; newer request after cancel; `ucinewgame`; restart; 3 × shutdown+start; analysis after shutdown |
+| `EngineTest` | 42 with the real Stockfish 19 / 40 with the Stockfish 11 test engine / 7 (Stockfish 19 without its network, handshake only) | `uci`/`uciok`/`readyok`; engine name; legal `bestmove` for several positions incl. promotion, castling, en passant; forced mate / only-move positions prove the answer belongs to *its* position; 24 alternating analyses never mix answers; invalid FEN rejected; cancel; newer request after cancel; `ucinewgame`; restart; 3 × shutdown+start; analysis after shutdown |
 
 ### Results obtained while repairing the project (sandbox: Linux, no Android SDK/NDK, no access to the Stockfish network file)
 
 | Run | Result |
 |---|---|
-| `TrackerTest` | 117 passed, 0 failed |
+| `TrackerTest` | 115 passed, 0 failed |
 | `CoreTest` | 15 passed, 0 failed |
 | `VisionTest` | 57 passed, 0 failed |
+| `AutoSeedTest` | 32 passed, 0 failed |
 | `EngineTest` against the legacy Stockfish 11 build (tests the bridge/engine layer) | 40 passed, 0 failed |
 | `EngineTest` against Stockfish 19 built **without** its network (`NO_NET=1`) | 7 passed, 0 failed - proves only: library loads, `uciok`, `readyok`, `id name Stockfish 19`, restart/shutdown cycle |
 | `EngineTest` against the real Stockfish 19 **with** its network (`-Dexpect.engine="Stockfish 19"`) | 41 passed, 0 failed (first run after the promotion-test fix below; 10 consecutive runs passed, 4 of them under heavy CPU load) |
@@ -62,7 +64,8 @@ Nobody has run these for this repair. Please run them on the phone and report wh
 3. Open a chess app with the start position; fit the board frame by dragging; **SHOW MY MOVE** gives a legal move for your side.
 4. Leave the screen untouched for 2 minutes with AUTO on: pieces / FEN must not change (this is the reported bug).
 5. Play 10 moves in both orientations; the panel follows every move; captures, castling, en passant, promotion.
-6. Switch to another app and back; rotate; screen off/on; the panel recovers or asks for FIX PIECES - it never shows a wrong position as certain.
+6. Switch to another app and back; rotate; screen off/on; the panel recovers by re-reading the board - it never shows a wrong position as certain.
+   Also: start the panel in the middle of a game (after having used it at the start of a game once) and check that the position it reports (Diagnostics → position) is the real one; if it says "estimate" check the pieces yourself.
 7. Stop the panel; the engine process thread ends (no battery drain).
 
 ## Promotion test: why the position is forced (CI failure analysed)
