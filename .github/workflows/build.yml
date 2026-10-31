@@ -34,6 +34,7 @@ jobs:
         run: SF_VERSION=11 tools/run-host-tests.sh 2>&1 | tee test-report-host-sf11.txt
       - uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true      # the reports are a convenience: a full artifact quota must not turn passing tests red
         with: { name: test-reports, path: test-report-*.txt }
 
   apk:
