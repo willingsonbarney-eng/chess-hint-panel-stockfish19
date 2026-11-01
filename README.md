@@ -117,21 +117,31 @@ listed honestly in [`docs/TESTING.md`](docs/TESTING.md).
 
 ## 📦 All versions
 
-| Version | APK | What changed |
-|---|---|---|
-| **1.9** *(latest)* | [the CI artifact / release (see docs/BUILDING.md)](the CI artifact / release (see docs/BUILDING.md)) | **Fixed `libstockfish.so` `dlopen` symbol error (`__android_log_print` without `liblog.so`) & false board detection on the app home screen** (`engine: ready` now starts immediately on all Android devices; stale/non-board rectangles are rejected and automatically re-detected on the real chess board; piece-count limits enforced in `Vision.guessBoard`) |
-| 2.3 | built by CI (see [docs/BUILDING.md](docs/BUILDING.md)) | **Repair release:** position tracking rewritten (no more identity changes), Stockfish 19, tests, docs — see [CHANGELOG](CHANGELOG.md) |
-| 1.8 | [apk/ChessHintPanel-v1.8.apk](apk/ChessHintPanel-v1.8.apk) | **Fixed Android 10 (API 29 / Realme UI / ColorOS) `"Screen reading was stopped by the system"` & native engine shutdown crash** (bypassed Android 10 `MediaProjectionManagerService.handleForegroundServicesChanged` race, added automatic `MediaProjection` token recovery, moved `createVirtualDisplay` to immediate main-thread init, made `UciEngine` a process-wide singleton on its own thread without sending `"quit"` on service stop, and preserved full multi-entry log history in `CrashGuard`) |
-| 1.7 | [apk/ChessHintPanel-v1.7.apk](apk/ChessHintPanel-v1.7.apk) | **Fixed crash when granting Screen Recording permission** (`MainActivity.onResume()` no longer calls `stopService()` immediately after `onActivityResult()` starts `OverlayService`, eliminating `ForegroundServiceDidNotStartInTimeException`; `ScreenGrab` no longer decodes 60 fps full-screen bitmaps on `onImageAvailable`, decoding lazily on demand inside `grab()`) |
-| 1.6 | [apk/ChessHintPanel-v1.6.apk](apk/ChessHintPanel-v1.6.apk) | **Complete fix for "Could not read the screen"** (`ImageReader` on `chesshint-frames`, row-stride safe buffer copy, static-screen `lastBitmap` cache + SurfaceFlinger nudge, clean capture hiding old marks), **fixed duplicate floating icons & broken STOP** (unregistered `MediaProjection.Callback` before stop, synchronous 0 ms teardown, mid-game/new-game auto recovery) |
-| 1.5 | [apk/ChessHintPanel-v1.5.apk](apk/ChessHintPanel-v1.5.apk) | `acquireLatestImage()` polling fallback, `StopReceiver` broadcast notification STOP, **TEST SCREEN READING** button |
-| 1.4 | [apk/ChessHintPanel-v1.4.apk](apk/ChessHintPanel-v1.4.apk) | Dedicated frame thread, one-tap ✕ on floating ♞ bubble, **✖ STOP & CLOSE** and **HIDE ♞** in panel, stray window sweep |
-| 1.3 | [apk/ChessHintPanel-v1.3.apk](apk/ChessHintPanel-v1.3.apk) | **Screen-recording crash fixed for Android 10–15** (foreground-service order is now version-correct with an automatic fallback), the panel never closes itself on capture errors — it shows the reason, a **Retry** button and a **Share log**; memory tuning per device (`Tune`), problem card in the app |
-| 1.2 | [apk/ChessHintPanel-v1.2.apk](apk/ChessHintPanel-v1.2.apk) | Crash on *SHOW MY MOVE* fixed (memory + guards), no more surprise calibration frame, capture retry, Diagnostics card |
-| 1.1 | [apk/ChessHintPanel-v1.1.apk](apk/ChessHintPanel-v1.1.apk) | Android 14 crash fixed, chrome-free overlay, Settings screen with live preview, marker styles |
-| 1.0 | [apk/ChessHintPanel-v1.0.apk](apk/ChessHintPanel-v1.0.apk) | First release — Stockfish 11 via JNI, screen reader, game tracker, hint arrow |
+The versions below are archived builds from this remake. Version 1.9 is omitted because no verified APK was found.
 
-Full history: [CHANGELOG.md](CHANGELOG.md)
+| Version | APK | Notes |
+|---|---|---|
+| **2.2** | [ChessHintPanel-v2.2.apk](apk/ChessHintPanel-v2.2.apk) | Archived remake build |
+| **2.1** | [ChessHintPanel-v2.1.apk](apk/ChessHintPanel-v2.1.apk) | Archived remake build |
+| **1.8** | [ChessHintPanel-v1.8.apk](apk/ChessHintPanel-v1.8.apk) | Fixed Android 10 screen-reading and native engine shutdown issues |
+| **1.7** | [ChessHintPanel-v1.7.apk](apk/ChessHintPanel-v1.7.apk) | Fixed crash after granting screen-recording permission |
+| **1.6** | [ChessHintPanel-v1.6.apk](apk/ChessHintPanel-v1.6.apk) | Fixed screen-reading failures and duplicate overlay controls |
+| **1.5** | [ChessHintPanel-v1.5.apk](apk/ChessHintPanel-v1.5.apk) | Added image polling fallback and a screen-reading test button |
+| **1.4** | [ChessHintPanel-v1.4.apk](apk/ChessHintPanel-v1.4.apk) | Added a dedicated frame thread and floating-panel controls |
+| **1.3** | [ChessHintPanel-v1.3.apk](apk/ChessHintPanel-v1.3.apk) | Fixed screen-recording crashes on Android 10–15 |
+| **1.2** | [ChessHintPanel-v1.2.apk](apk/ChessHintPanel-v1.2.apk) | Fixed the Show My Move crash and added capture retries |
+| **1.1** | [ChessHintPanel-v1.1.apk](apk/ChessHintPanel-v1.1.apk) | Fixed Android 14 crashes and added live settings preview |
+| **1.0** | [ChessHintPanel-v1.0.apk](apk/ChessHintPanel-v1.0.apk) | First release, using Stockfish 11 through JNI |
+
+Full change history: [CHANGELOG.md](CHANGELOG.md)
+
+## 🙌 Credits
+
+- **Original project owner:** [botstelegram7-cmyk](https://github.com/botstelegram7-cmyk), creator of the original [Chess Hint Panel](https://github.com/botstelegram7-cmyk/chess-hint-panel). Original project credit is retained.
+- **Remake developer and repository maintainer:** [willingsonbarney-eng](https://github.com/willingsonbarney-eng). Responsible for this independent remake, its changes, maintenance, Android builds, testing, and documentation.
+- **Chess engine:** [Stockfish](https://github.com/official-stockfish/Stockfish), by the official Stockfish contributors. Stockfish remains under its own GPLv3-or-later license.
+
+This repository is an independent remake. It is not an official release or endorsement by the original project owner or the Stockfish team.
 
 ## ⚖️ About "8000 Elo"
 
