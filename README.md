@@ -117,21 +117,12 @@ listed honestly in [`docs/TESTING.md`](docs/TESTING.md).
 
 ## 📦 All versions
 
-The versions below are archived builds from this remake. Version 1.9 is omitted because no verified APK was found.
+These are the APK files attached to the **Stockfish 19 Upgrade** GitHub release. Each link downloads the actual release asset.
 
-| Version | APK | Notes |
+| Version | APK | Release |
 |---|---|---|
-| **2.2** | [ChessHintPanel-v2.2.apk](apk/ChessHintPanel-v2.2.apk) | Archived remake build |
-| **2.1** | [ChessHintPanel-v2.1.apk](apk/ChessHintPanel-v2.1.apk) | Archived remake build |
-| **1.8** | [ChessHintPanel-v1.8.apk](apk/ChessHintPanel-v1.8.apk) | Fixed Android 10 screen-reading and native engine shutdown issues |
-| **1.7** | [ChessHintPanel-v1.7.apk](apk/ChessHintPanel-v1.7.apk) | Fixed crash after granting screen-recording permission |
-| **1.6** | [ChessHintPanel-v1.6.apk](apk/ChessHintPanel-v1.6.apk) | Fixed screen-reading failures and duplicate overlay controls |
-| **1.5** | [ChessHintPanel-v1.5.apk](apk/ChessHintPanel-v1.5.apk) | Added image polling fallback and a screen-reading test button |
-| **1.4** | [ChessHintPanel-v1.4.apk](apk/ChessHintPanel-v1.4.apk) | Added a dedicated frame thread and floating-panel controls |
-| **1.3** | [ChessHintPanel-v1.3.apk](apk/ChessHintPanel-v1.3.apk) | Fixed screen-recording crashes on Android 10–15 |
-| **1.2** | [ChessHintPanel-v1.2.apk](apk/ChessHintPanel-v1.2.apk) | Fixed the Show My Move crash and added capture retries |
-| **1.1** | [ChessHintPanel-v1.1.apk](apk/ChessHintPanel-v1.1.apk) | Fixed Android 14 crashes and added live settings preview |
-| **1.0** | [ChessHintPanel-v1.0.apk](apk/ChessHintPanel-v1.0.apk) | First release, using Stockfish 11 through JNI |
+| **2.3** | [ChessHintPanel-v2.3.apk](https://github.com/willingsonbarney-eng/chess-hint-panel-stockfish19/releases/download/v2.0.0/ChessHintPanel-v2.3.apk) | [Stockfish 19 Upgrade](https://github.com/willingsonbarney-eng/chess-hint-panel-stockfish19/releases/tag/v2.0.0) |
+| **2.2** | [ChessHintPanel-v2.2.apk](https://github.com/willingsonbarney-eng/chess-hint-panel-stockfish19/releases/download/v2.0.0/ChessHintPanel-v2.2.apk) | [Stockfish 19 Upgrade](https://github.com/willingsonbarney-eng/chess-hint-panel-stockfish19/releases/tag/v2.0.0) |
 
 Full change history: [CHANGELOG.md](CHANGELOG.md)
 
